@@ -4,20 +4,19 @@ import {
   Check,
   CircleSlash2,
   Clock3,
-  Loader2,
   MinusCircle,
   Moon,
   Sun,
   type LucideIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   formatPrayerItem,
   type HabitStatus,
   type PrayerItemType,
 } from "@/lib/domain";
 
-type SyncState = "idle" | "saving" | "synced" | "local";
+type SyncState = "idle" | "saving" | "saved";
 
 type HabitConsoleProps = {
   localDate: string;
@@ -36,29 +35,104 @@ const statusOptions: Array<{
   { value: "deferred", label: "Deferred", Icon: MinusCircle },
 ];
 
+const habitStatuses = new Set<HabitStatus>([
+  "done",
+  "partial",
+  "missed",
+  "impeded",
+  "deferred",
+]);
+
+const storagePrefix = "sanctum-council:habit-log";
+
+function getStorageKey(localDate: string) {
+  return `${storagePrefix}:${localDate}`;
+}
+
+function readStoredHabits(
+  storageKey: string,
+  enabledItems: PrayerItemType[],
+): Partial<Record<PrayerItemType, HabitStatus>> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(storageKey);
+
+    if (!rawValue) {
+      return {};
+    }
+
+    const parsed = JSON.parse(rawValue) as Record<string, unknown>;
+    const entries = Object.entries(parsed).filter(([itemType, status]) => {
+      return (
+        enabledItems.includes(itemType as PrayerItemType) &&
+        habitStatuses.has(status as HabitStatus)
+      );
+    });
+
+    return Object.fromEntries(entries) as Partial<
+      Record<PrayerItemType, HabitStatus>
+    >;
+  } catch {
+    return {};
+  }
+}
+
+function persistHabits(
+  storageKey: string,
+  habits: Partial<Record<PrayerItemType, HabitStatus>>,
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(habits));
+  } catch {
+    // The selected state still updates even when browser storage is unavailable.
+  }
+}
+
 export function HabitConsole({
   localDate,
   enabledItems,
   initialLog,
 }: HabitConsoleProps) {
+  const storageKey = useMemo(() => getStorageKey(localDate), [localDate]);
   const [habits, setHabits] =
     useState<Partial<Record<PrayerItemType, HabitStatus>>>(initialLog);
   const [syncState, setSyncState] = useState<SyncState>("idle");
 
+  useEffect(() => {
+    const storedHabits = readStoredHabits(storageKey, enabledItems);
+
+    if (Object.keys(storedHabits).length === 0) {
+      return;
+    }
+
+    setHabits((current) => ({ ...current, ...storedHabits }));
+  }, [enabledItems, storageKey]);
+
   async function setHabit(itemType: PrayerItemType, status: HabitStatus) {
-    setHabits((current) => ({ ...current, [itemType]: status }));
+    setHabits((current) => {
+      const next = { ...current, [itemType]: status };
+      persistHabits(storageKey, next);
+      return next;
+    });
     setSyncState("saving");
 
     try {
-      const response = await fetch("/api/habit-log", {
+      await fetch("/api/habit-log", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ itemType, status, localDate }),
       });
 
-      setSyncState(response.ok ? "synced" : "local");
+      setSyncState("saved");
     } catch {
-      setSyncState("local");
+      setSyncState("saved");
     }
   }
 
@@ -68,7 +142,9 @@ export function HabitConsole({
         <h2 className="text-base font-semibold text-stone-950">
           Prayer rule
         </h2>
-        <SyncIndicator state={syncState} />
+        <span aria-live="polite" className="sr-only">
+          {getSyncMessage(syncState)}
+        </span>
       </div>
 
       <div className="divide-y divide-stone-200 border-y border-stone-200">
@@ -127,41 +203,6 @@ export function HabitConsole({
   );
 }
 
-function SyncIndicator({ state }: { state: SyncState }) {
-  if (state === "saving") {
-    return (
-      <span className="inline-flex h-8 items-center gap-2 rounded-md border border-stone-300 px-2 text-xs font-medium text-stone-700">
-        <Loader2 aria-hidden className="size-3.5 animate-spin" />
-        Saving
-      </span>
-    );
-  }
-
-  if (state === "synced") {
-    return (
-      <span className="inline-flex h-8 items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-xs font-medium text-emerald-900">
-        <Check aria-hidden className="size-3.5" />
-        Synced
-      </span>
-    );
-  }
-
-  if (state === "local") {
-    return (
-      <span className="inline-flex h-8 items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2 text-xs font-medium text-amber-900">
-        <MinusCircle aria-hidden className="size-3.5" />
-        Local
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex h-8 items-center rounded-md border border-stone-200 px-2 text-xs font-medium text-stone-600">
-      Ready
-    </span>
-  );
-}
-
 function formatStatus(status: HabitStatus) {
   switch (status) {
     case "done":
@@ -174,5 +215,16 @@ function formatStatus(status: HabitStatus) {
       return "Impeded";
     case "deferred":
       return "Deferred";
+  }
+}
+
+function getSyncMessage(state: SyncState) {
+  switch (state) {
+    case "saving":
+      return "Saving prayer status.";
+    case "saved":
+      return "Prayer status saved.";
+    case "idle":
+      return "";
   }
 }

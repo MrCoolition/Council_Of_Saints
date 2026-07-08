@@ -1,10 +1,7 @@
 import {
-  BookOpen,
   CalendarDays,
   CheckCircle2,
   Flame,
-  LockKeyhole,
-  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 import Image from "next/image";
@@ -73,8 +70,7 @@ export default function Home() {
               src="/devotional-desk.png"
             />
             <figcaption className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-stone-950/80 to-transparent p-4 text-sm font-medium text-amber-50">
-              Neon stores the structure. The physical breviary carries the
-              prayer text.
+              A quiet rule of prayer, anchored in the rhythm of the Church.
             </figcaption>
           </figure>
         </section>
@@ -95,24 +91,6 @@ export default function Home() {
           {today.officeGuides.map((guide) => (
             <OfficeGuidePanel guide={guide} key={guide.hourType} />
           ))}
-        </section>
-
-        <section className="grid gap-4 pb-8 lg:grid-cols-3">
-          <InfoPanel
-            Icon={ShieldCheck}
-            title="Sensitive notes"
-            body="Confession, examen faults, scrupulosity notes, and private direction notes are never sent as raw text."
-          />
-          <InfoPanel
-            Icon={LockKeyhole}
-            title="Encrypted examen"
-            body="The server endpoint accepts ciphertext only, with the encryption key kept outside Neon."
-          />
-          <InfoPanel
-            Icon={BookOpen}
-            title="Copyright-safe guide"
-            body="The database stores metadata, page references, and instructions, not official prayer text."
-          />
         </section>
       </div>
     </main>
@@ -224,9 +202,6 @@ function OfficeGuidePanel({ guide }: { guide: OfficeGuide }) {
             {guide.volume} | Psalter Week {guide.psalterWeek}
           </h2>
         </div>
-        <span className="inline-flex h-9 items-center rounded-md border border-stone-300 px-3 text-xs font-semibold uppercase text-stone-700">
-          Metadata only
-        </span>
       </div>
 
       <p className="mt-4 text-sm leading-6 text-stone-700">
@@ -249,33 +224,10 @@ function OfficeGuidePanel({ guide }: { guide: OfficeGuide }) {
               <p className="mt-1 text-sm leading-6 text-stone-700">
                 {step.instruction}
               </p>
-              <p className="mt-1 text-xs text-stone-500">
-                {step.copyrightSafeNote}
-              </p>
             </div>
           </li>
         ))}
       </ol>
-    </section>
-  );
-}
-
-function InfoPanel({
-  Icon,
-  title,
-  body,
-}: {
-  Icon: LucideIcon;
-  title: string;
-  body: string;
-}) {
-  return (
-    <section className="min-h-36 rounded-lg border border-stone-300 bg-[var(--panel)] p-5 shadow-sm">
-      <span className="flex size-10 items-center justify-center rounded-md bg-stone-900 text-amber-50">
-        <Icon aria-hidden className="size-5" />
-      </span>
-      <h2 className="mt-4 text-lg font-semibold text-stone-950">{title}</h2>
-      <p className="mt-2 text-sm leading-6 text-stone-700">{body}</p>
     </section>
   );
 }
