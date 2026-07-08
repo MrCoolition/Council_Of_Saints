@@ -106,13 +106,17 @@ export function HabitConsole({
   const [syncState, setSyncState] = useState<SyncState>("idle");
 
   useEffect(() => {
-    const storedHabits = readStoredHabits(storageKey, enabledItems);
+    const timeoutId = window.setTimeout(() => {
+      const storedHabits = readStoredHabits(storageKey, enabledItems);
 
-    if (Object.keys(storedHabits).length === 0) {
-      return;
-    }
+      if (Object.keys(storedHabits).length === 0) {
+        return;
+      }
 
-    setHabits((current) => ({ ...current, ...storedHabits }));
+      setHabits((current) => ({ ...current, ...storedHabits }));
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
   }, [enabledItems, storageKey]);
 
   async function setHabit(itemType: PrayerItemType, status: HabitStatus) {

@@ -43,7 +43,13 @@ export async function POST(request: Request) {
   }
 
   if (!hasDatabase()) {
-    return jsonError("DATABASE_URL is not configured.", 503);
+    return Response.json({
+      ok: true,
+      mode: "device",
+      localDate,
+      itemType,
+      status,
+    });
   }
 
   const auth = resolveAuth(request);

@@ -1,11 +1,10 @@
 import {
   CalendarDays,
-  CheckCircle2,
   Flame,
   type LucideIcon,
 } from "lucide-react";
 import Image from "next/image";
-import { HabitConsole } from "@/components/habit-console";
+import { FormationConsole } from "@/components/formation-console";
 import { formatPrayerItem } from "@/lib/domain";
 import { getDemoTodayPayload, type OfficeGuide } from "@/lib/demo-data";
 
@@ -55,9 +54,9 @@ export default function Home() {
               detail={today.breviary.currentVolume}
             />
             <Metric
-              label="Rule"
-              value={`${today.prayerRule.enabledItems.length} anchors`}
-              detail={`Difficulty ${today.prayerRule.difficultyLevel}`}
+              label="Book"
+              value={today.breviary.currentVolume}
+              detail={today.breviary.title}
             />
           </div>
 
@@ -75,17 +74,12 @@ export default function Home() {
           </figure>
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-          <div className="rounded-lg border border-stone-300 bg-[var(--panel)] p-5 shadow-sm">
-            <HabitConsole
-              enabledItems={today.prayerRule.enabledItems}
-              initialLog={today.habitLog}
-              localDate={today.localDate}
-            />
-          </div>
-
-          <CouncilPanel today={today} />
-        </section>
+        <FormationConsole
+          defaultDifficultyLevel={today.prayerRule.difficultyLevel}
+          defaultEnabledItems={today.prayerRule.enabledItems}
+          initialLog={today.habitLog}
+          localDate={today.localDate}
+        />
 
         <section className="grid gap-4 lg:grid-cols-2">
           {today.officeGuides.map((guide) => (
@@ -140,53 +134,6 @@ function StatusPill({
       <Icon aria-hidden className="size-4 shrink-0" />
       <span className="truncate">{label}</span>
     </span>
-  );
-}
-
-function CouncilPanel({
-  today,
-}: {
-  today: ReturnType<typeof getDemoTodayPayload>;
-}) {
-  const prompt = today.councilPrompt;
-
-  return (
-    <section className="rounded-lg border border-emerald-950 bg-emerald-950 p-5 text-amber-50 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold text-amber-200">
-            Council prompt
-          </p>
-          <h2 className="mt-2 text-2xl font-semibold">{prompt.saintName}</h2>
-        </div>
-        <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-md bg-amber-100 text-emerald-950">
-          <CheckCircle2 aria-hidden className="size-5" />
-        </span>
-      </div>
-
-      <p className="mt-5 text-lg leading-8 text-amber-50">{prompt.message}</p>
-
-      <div className="mt-5 grid gap-3 border-y border-emerald-800 py-4 sm:grid-cols-3 sm:gap-0 sm:divide-x sm:divide-emerald-800">
-        <PromptStat label="Action" value={prompt.actionItem} />
-        <PromptStat label="Virtue" value={prompt.virtueFocus} />
-        <PromptStat label="Sacrifice" value={prompt.sacrifice} />
-      </div>
-
-      <p className="mt-5 text-sm leading-6 text-amber-100">
-        Formation prompts inspired by the lives and charisms of the saints. Not
-        private revelation. Not confession. Not spiritual direction. Not an
-        official judgment of the Church.
-      </p>
-    </section>
-  );
-}
-
-function PromptStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-h-24 px-0 sm:px-4">
-      <p className="text-xs font-semibold uppercase text-amber-200">{label}</p>
-      <p className="mt-2 text-sm leading-6 text-amber-50">{value}</p>
-    </div>
   );
 }
 
