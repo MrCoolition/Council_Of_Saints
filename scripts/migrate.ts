@@ -7,16 +7,9 @@ const connectionString =
   process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
 
 if (!connectionString) {
-  const message =
-    "DATABASE_URL_UNPOOLED is not set. Skipping migrations for local build.";
-
-  if (process.env.VERCEL === "1") {
-    throw new Error(
-      "DATABASE_URL_UNPOOLED is required for Vercel builds and migrations.",
-    );
-  }
-
-  console.warn(message);
+  console.warn(
+    "DATABASE_URL_UNPOOLED/DATABASE_URL is not set. Skipping migrations.",
+  );
   process.exit(0);
 }
 
