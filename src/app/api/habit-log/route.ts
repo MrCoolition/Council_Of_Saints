@@ -91,6 +91,7 @@ export async function POST(request: Request) {
 
   return Response.json({
     ok: true,
+    mode: "account",
     localDate: localDate || getLocalIsoDate(user.timezone),
     itemType,
     status,

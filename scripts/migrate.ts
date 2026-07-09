@@ -4,11 +4,15 @@ import process from "node:process";
 import { Client } from "pg";
 
 const connectionString =
-  process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
+  process.env.DATABASE_URL_UNPOOLED ??
+  process.env.POSTGRES_URL_NON_POOLING ??
+  process.env.DATABASE_URL ??
+  process.env.POSTGRES_URL ??
+  process.env.POSTGRES_PRISMA_URL;
 
 if (!connectionString) {
   console.warn(
-    "DATABASE_URL_UNPOOLED/DATABASE_URL is not set. Skipping migrations.",
+    "Database connection string is not set. Skipping migrations.",
   );
   process.exit(0);
 }

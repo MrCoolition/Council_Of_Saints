@@ -3,15 +3,21 @@ export type ResolvedAuth = {
   displayName: string;
 };
 
-export function resolveAuth(request: Request): ResolvedAuth | null {
-  const headerSubject = request.headers.get("x-sanctum-auth-subject");
-  const headerName = request.headers.get("x-sanctum-display-name");
-  const configuredDemoSubject = process.env.SANCTUM_DEMO_AUTH_SUBJECT;
+export function resolveAuth(request: Request): ResolvedAuth {
+  return resolveAuthFromHeaders(request.headers);
+}
+
+export function resolveAuthFromHeaders(headers?: Headers | null): ResolvedAuth {
+  const headerSubject = headers?.get("x-sanctum-auth-subject");
+  const headerName = headers?.get("x-sanctum-display-name");
+  const configuredDemoSubject =
+    process.env.SANCTUM_DEMO_AUTH_SUBJECT ?? "coolition-primary";
+  const configuredDemoName = process.env.SANCTUM_DEMO_DISPLAY_NAME ?? "Coolition";
 
   if (process.env.NODE_ENV !== "production") {
     return {
       authSubject: headerSubject ?? configuredDemoSubject ?? "local-dev-user",
-      displayName: headerName ?? "Coolition",
+      displayName: headerName ?? configuredDemoName,
     };
   }
 
@@ -22,5 +28,8 @@ export function resolveAuth(request: Request): ResolvedAuth | null {
     };
   }
 
-  return null;
+  return {
+    authSubject: configuredDemoSubject,
+    displayName: headerName ?? configuredDemoName,
+  };
 }

@@ -6,12 +6,13 @@ import {
 import Image from "next/image";
 import { FormationConsole } from "@/components/formation-console";
 import { formatPrayerItem } from "@/lib/domain";
-import { getDemoTodayPayload, type OfficeGuide } from "@/lib/demo-data";
+import type { OfficeGuide } from "@/lib/demo-data";
+import { getTodayPayload } from "@/server/today";
 
 export const dynamic = "force-dynamic";
 
-export default function Home() {
-  const today = getDemoTodayPayload();
+export default async function Home() {
+  const today = await getTodayPayload();
   const displayDate = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     month: "long",
@@ -77,7 +78,9 @@ export default function Home() {
         <FormationConsole
           defaultDifficultyLevel={today.prayerRule.difficultyLevel}
           defaultEnabledItems={today.prayerRule.enabledItems}
+          initialHistory={today.habitHistory}
           initialLog={today.habitLog}
+          initialSaveMode={today.mode === "database" ? "account" : "device"}
           localDate={today.localDate}
         />
 

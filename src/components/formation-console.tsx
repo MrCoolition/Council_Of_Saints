@@ -24,6 +24,8 @@ type FormationConsoleProps = {
   defaultEnabledItems: PrayerItemType[];
   defaultDifficultyLevel: number;
   initialLog: Partial<Record<PrayerItemType, HabitStatus>>;
+  initialHistory: Record<string, Partial<Record<PrayerItemType, HabitStatus>>>;
+  initialSaveMode: SaveMode;
 };
 
 type RuleState = {
@@ -46,6 +48,8 @@ type WeeklySummary = {
   deferred: number;
   total: number;
 };
+
+type SaveMode = "account" | "device";
 
 const ruleStorageKey = "sanctum-council:rule:v1";
 const habitStoragePrefix = "sanctum-council:habit-log";
@@ -111,6 +115,8 @@ export function FormationConsole({
   defaultEnabledItems,
   defaultDifficultyLevel,
   initialLog,
+  initialHistory,
+  initialSaveMode,
 }: FormationConsoleProps) {
   const [rule, setRule] = useState<RuleState>({
     enabledItems: defaultEnabledItems,
@@ -121,6 +127,7 @@ export function FormationConsole({
   const [activeTab, setActiveTab] = useState<"today" | "rule" | "week">(
     "today",
   );
+  const [saveMode, setSaveMode] = useState<SaveMode>(initialSaveMode);
 
   const habitStorageKey = useMemo(
     () => getHabitStorageKey(localDate),
@@ -177,8 +184,14 @@ export function FormationConsole({
   }, [rule.enabledItems, visibleHabits]);
 
   const weeklySummary = useMemo(
-    () => getWeeklySummary(localDate, rule.enabledItems, visibleHabits),
-    [localDate, rule.enabledItems, visibleHabits],
+    () =>
+      getWeeklySummary(
+        localDate,
+        rule.enabledItems,
+        visibleHabits,
+        initialHistory,
+      ),
+    [initialHistory, localDate, rule.enabledItems, visibleHabits],
   );
 
   const counsel = useMemo(
@@ -189,6 +202,7 @@ export function FormationConsole({
   function persistRule(nextRule: RuleState) {
     setRule(nextRule);
     writeStorage(ruleStorageKey, nextRule);
+    void saveRule(nextRule);
   }
 
   function toggleRuleItem(itemType: PrayerItemType) {
@@ -218,13 +232,29 @@ export function FormationConsole({
     writeStorage(habitStorageKey, nextHabits);
 
     try {
-      await fetch("/api/habit-log", {
+      const response = await fetch("/api/habit-log", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ itemType, status, localDate }),
       });
+      const result = (await response.json()) as { mode?: string };
+      setSaveMode(result.mode === "account" ? "account" : "device");
     } catch {
-      // The daily rule remains saved in the browser even without a network save.
+      setSaveMode("device");
+    }
+  }
+
+  async function saveRule(nextRule: RuleState) {
+    try {
+      const response = await fetch("/api/prayer-rule", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(nextRule),
+      });
+      const result = (await response.json()) as { mode?: string };
+      setSaveMode(result.mode === "account" ? "account" : "device");
+    } catch {
+      setSaveMode("device");
     }
   }
 
@@ -239,6 +269,9 @@ export function FormationConsole({
             <h2 className="mt-2 text-2xl font-semibold text-stone-950">
               {todayStats.done} of {todayStats.total} anchors kept
             </h2>
+            <p className="mt-2 text-xs font-semibold uppercase text-stone-500">
+              {saveMode === "account" ? "Account saved" : "Device saved"}
+            </p>
           </div>
 
           <div className="grid grid-cols-3 gap-2 text-center">
@@ -667,6 +700,7 @@ function getWeeklySummary(
   localDate: string,
   enabledItems: PrayerItemType[],
   todayHabits: Partial<Record<PrayerItemType, HabitStatus>>,
+  initialHistory: Record<string, Partial<Record<PrayerItemType, HabitStatus>>>,
 ): WeeklySummary {
   const summary: WeeklySummary = {
     completed: 0,
@@ -678,10 +712,15 @@ function getWeeklySummary(
 
   for (let offset = 0; offset < 7; offset += 1) {
     const date = shiftIsoDate(localDate, -offset);
+    const serverLog = initialHistory[date] ?? {};
+    const storedLog = readStoredHabits(getHabitStorageKey(date), enabledItems);
     const log =
       offset === 0
         ? todayHabits
-        : readStoredHabits(getHabitStorageKey(date), enabledItems);
+        : {
+            ...serverLog,
+            ...storedLog,
+          };
 
     for (const itemType of enabledItems) {
       const status = log[itemType];

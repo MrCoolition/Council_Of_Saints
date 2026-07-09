@@ -20,14 +20,14 @@ function createPool(connectionString: string) {
 }
 
 export function hasDatabase() {
-  return Boolean(process.env.DATABASE_URL);
+  return Boolean(getConnectionString());
 }
 
 export function getPool() {
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = getConnectionString();
 
   if (!connectionString) {
-    throw new Error("DATABASE_URL is not set");
+    throw new Error("Database connection string is not set");
   }
 
   if (!globalThis.__sanctumPool) {
@@ -45,3 +45,11 @@ export async function query<T extends QueryResultRow>(
 }
 
 export type SanctumPoolClient = PoolClient;
+
+function getConnectionString() {
+  return (
+    process.env.DATABASE_URL ??
+    process.env.POSTGRES_URL ??
+    process.env.POSTGRES_PRISMA_URL
+  );
+}
