@@ -4,6 +4,7 @@ import { getLocalIsoDate } from "@/lib/dates";
 import type { HabitStatus, PrayerItemType } from "@/lib/domain";
 import {
   getDemoTodayPayload,
+  getOfficeScriptureAnchors,
   type OfficeGuide,
   type TodayPayload,
 } from "@/lib/demo-data";
@@ -28,9 +29,18 @@ type OfficeGuideRow = {
   step_order: number;
   section_type: string;
   page_start: number | null;
+  page_end: number | null;
   instruction: string;
   copyright_safe_note: string | null;
   content_license_status: "metadata_only";
+};
+
+type BookReferenceRow = {
+  hour_type: PrayerItemType;
+  section_type: string;
+  step_order: number;
+  page_start: number;
+  page_end: number | null;
 };
 
 export async function getTodayPayload(request?: Request): Promise<TodayPayload> {
@@ -67,7 +77,7 @@ export async function getTodayPayload(request?: Request): Promise<TodayPayload> 
 
   const liturgicalDay = dayResult.rows[0];
   const officeGuides = liturgicalDay
-    ? await getOfficeGuides(liturgicalDay.id)
+    ? await getOfficeGuides(liturgicalDay.id, localDate)
     : dateFallback.officeGuides;
 
   const userState = await withUserTransaction(user.id, async (client) => {
@@ -129,12 +139,32 @@ export async function getTodayPayload(request?: Request): Promise<TodayPayload> 
       };
     }
 
+    const bookReferenceRows = await client.query<BookReferenceRow>(
+      `
+        select
+          hour_type::text as hour_type,
+          section_type,
+          step_order,
+          page_start,
+          page_end
+        from user_book_reference
+        where user_id = $1
+          and local_date = $2
+      `,
+      [user.id, localDate],
+    );
+
     return {
       prayerRule,
       habitLog: habitHistory[localDate] ?? {},
       habitHistory,
+      bookReferences: bookReferenceRows.rows,
     };
   });
+  const referencedOfficeGuides = applyBookReferences(
+    officeGuides.length > 0 ? officeGuides : dateFallback.officeGuides,
+    userState.bookReferences,
+  );
 
   return {
     ...dateFallback,
@@ -162,11 +192,14 @@ export async function getTodayPayload(request?: Request): Promise<TodayPayload> 
     },
     habitLog: userState.habitLog,
     habitHistory: userState.habitHistory,
-    officeGuides,
+    officeGuides: referencedOfficeGuides,
   };
 }
 
-async function getOfficeGuides(liturgicalDayId: string): Promise<OfficeGuide[]> {
+async function getOfficeGuides(
+  liturgicalDayId: string,
+  localDate: string,
+): Promise<OfficeGuide[]> {
   const rows = await query<OfficeGuideRow>(
     `
       select
@@ -177,6 +210,7 @@ async function getOfficeGuides(liturgicalDayId: string): Promise<OfficeGuide[]> 
         ogs.step_order,
         ogs.section_type,
         ogs.page_start,
+        ogs.page_end,
         ogs.instruction,
         ogs.copyright_safe_note,
         ogs.content_license_status
@@ -201,6 +235,13 @@ async function getOfficeGuides(liturgicalDayId: string): Promise<OfficeGuide[]> 
         psalterWeek: row.psalter_week ?? 2,
         generalNote:
           row.general_note ?? "Use the physical breviary for the prayer text.",
+        bookReferenceNote:
+          "Large-print page numbers are saved after you verify them from your physical book.",
+        scriptureAnchors: getOfficeScriptureAnchors(
+          row.hour_type,
+          localDate,
+          row.psalter_week ?? 2,
+        ),
         steps: [],
       } satisfies OfficeGuide);
 
@@ -208,6 +249,9 @@ async function getOfficeGuides(liturgicalDayId: string): Promise<OfficeGuide[]> 
       order: row.step_order,
       sectionType: row.section_type,
       pageStart: row.page_start,
+      pageEnd: row.page_end,
+      userPageStart: null,
+      userPageEnd: null,
       instruction: row.instruction,
       copyrightSafeNote: row.copyright_safe_note ?? "Metadata only.",
       contentLicenseStatus: "metadata_only",
@@ -217,4 +261,51 @@ async function getOfficeGuides(liturgicalDayId: string): Promise<OfficeGuide[]> 
   }
 
   return Array.from(grouped.values());
+}
+
+function applyBookReferences(
+  officeGuides: OfficeGuide[],
+  bookReferences: BookReferenceRow[],
+) {
+  if (bookReferences.length === 0) {
+    return officeGuides;
+  }
+
+  const references = new Map(
+    bookReferences.map((reference) => [
+      getReferenceKey(
+        reference.hour_type,
+        reference.section_type,
+        reference.step_order,
+      ),
+      reference,
+    ]),
+  );
+
+  return officeGuides.map((guide) => ({
+    ...guide,
+    steps: guide.steps.map((step) => {
+      const reference = references.get(
+        getReferenceKey(guide.hourType, step.sectionType, step.order),
+      );
+
+      if (!reference) {
+        return step;
+      }
+
+      return {
+        ...step,
+        userPageStart: reference.page_start,
+        userPageEnd: reference.page_end,
+      };
+    }),
+  }));
+}
+
+function getReferenceKey(
+  hourType: PrayerItemType,
+  sectionType: string,
+  stepOrder: number,
+) {
+  return `${hourType}:${sectionType}:${stepOrder}`;
 }

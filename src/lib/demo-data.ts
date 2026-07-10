@@ -10,9 +10,22 @@ export type OfficeGuideStep = {
   order: number;
   sectionType: string;
   pageStart: number | null;
+  pageEnd: number | null;
+  userPageStart: number | null;
+  userPageEnd: number | null;
   instruction: string;
   copyrightSafeNote: string;
   contentLicenseStatus: "metadata_only";
+};
+
+export type ScriptureAnchor = {
+  title: string;
+  citation: string;
+  role: string;
+  text: string | null;
+  source: "citation_only" | "public_domain";
+  sourceLabel: string;
+  reflection: string;
 };
 
 export type OfficeGuide = {
@@ -20,6 +33,8 @@ export type OfficeGuide = {
   volume: string;
   psalterWeek: number;
   generalNote: string;
+  bookReferenceNote: string;
+  scriptureAnchors: ScriptureAnchor[];
   steps: OfficeGuideStep[];
 };
 
@@ -115,8 +130,8 @@ export function getDemoTodayPayload(localDate = getLocalIsoDate()): TodayPayload
       formationStage: "lay_discernment",
     },
     breviary: {
-      editionId: "us-four-volume",
-      title: "Liturgy of the Hours, Four Volume Edition",
+      editionId: "us-four-volume-large-print",
+      title: "Liturgy of the Hours, Large Print Four Volume Edition",
       currentVolume: "Volume III",
     },
     prayerRule: {
@@ -125,80 +140,182 @@ export function getDemoTodayPayload(localDate = getLocalIsoDate()): TodayPayload
     },
     habitLog: {},
     habitHistory: {},
-    officeGuides: [
-      {
-        hourType: "morning_prayer",
-        volume: "Volume III",
-        psalterWeek: liturgicalDay.psalterWeek,
-        generalNote: "Use the physical breviary for the official prayer text.",
-        steps: [
-          {
-            order: 1,
-            sectionType: "ordinary",
-            pageStart: null,
-            instruction: "Begin with the Ordinary for Morning Prayer.",
-            copyrightSafeNote: "Metadata only.",
-            contentLicenseStatus: "metadata_only",
-          },
-          {
-            order: 2,
-            sectionType: "psalter",
-            pageStart: null,
-            instruction: `Go to Psalter Week ${toRomanNumeral(
-              liturgicalDay.psalterWeek,
-            )}, ${getWeekdayName(localDate)}.`,
-            copyrightSafeNote:
-              "Page references can be added after edition verification.",
-            contentLicenseStatus: "metadata_only",
-          },
-          {
-            order: 3,
-            sectionType: "proper",
-            pageStart: null,
-            instruction:
-              "Check the Proper of Saints before the concluding prayer.",
-            copyrightSafeNote: "Do not store official translated texts.",
-            contentLicenseStatus: "metadata_only",
-          },
-        ],
-      },
-      {
-        hourType: "night_prayer",
-        volume: "Volume III",
-        psalterWeek: liturgicalDay.psalterWeek,
-        generalNote:
-          "Night Prayer follows the weekly psalter and the physical book.",
-        steps: [
-          {
-            order: 1,
-            sectionType: "ordinary",
-            pageStart: null,
-            instruction: "Begin with the examination of conscience.",
-            copyrightSafeNote: "Metadata only.",
-            contentLicenseStatus: "metadata_only",
-          },
-          {
-            order: 2,
-            sectionType: "psalter",
-            pageStart: null,
-            instruction: `Use ${getWeekdayName(
-              localDate,
-            )} Night Prayer from the psalter.`,
-            copyrightSafeNote: "Do not store official translated texts.",
-            contentLicenseStatus: "metadata_only",
-          },
-          {
-            order: 3,
-            sectionType: "closing",
-            pageStart: null,
-            instruction: "Use the concluding prayer indicated in the book.",
-            copyrightSafeNote: "Physical breviary carries the text.",
-            contentLicenseStatus: "metadata_only",
-          },
-        ],
-      },
-    ],
+    officeGuides: getDemoOfficeGuides(localDate, liturgicalDay),
     councilPrompt: getCouncilPrompt("morning", "missed_prayer"),
+  };
+}
+
+export function getDemoOfficeGuides(
+  localDate: string,
+  liturgicalDay: TodayPayload["liturgicalDay"],
+): OfficeGuide[] {
+  const weekday = getWeekdayName(localDate);
+  const psalterWeek = liturgicalDay.psalterWeek;
+  const psalterLabel = `Psalter Week ${toRomanNumeral(psalterWeek)}`;
+
+  return [
+    {
+      hourType: "morning_prayer",
+      volume: "Volume III",
+      psalterWeek,
+      generalNote:
+        "Open the large-print Volume III and let the Church give the first words.",
+      bookReferenceNote:
+        "Large-print page numbers are saved after you verify them from your physical book.",
+      scriptureAnchors: getOfficeScriptureAnchors(
+        "morning_prayer",
+        localDate,
+        psalterWeek,
+      ),
+      steps: [
+        createOfficeStep(
+          1,
+          "ordinary",
+          "Begin with the Ordinary for Morning Prayer.",
+          "Metadata only.",
+        ),
+        createOfficeStep(
+          2,
+          "psalter",
+          `Go to ${psalterLabel}, ${weekday}.`,
+          "Page references can be added after edition verification.",
+        ),
+        createOfficeStep(
+          3,
+          "proper",
+          "Check the Proper of Saints before the concluding prayer.",
+          "Do not store official translated texts.",
+        ),
+      ],
+    },
+    {
+      hourType: "night_prayer",
+      volume: "Volume III",
+      psalterWeek,
+      generalNote:
+        "Close the day under God's protection, then let the screen go dark.",
+      bookReferenceNote:
+        "Large-print page numbers are saved after you verify them from your physical book.",
+      scriptureAnchors: getOfficeScriptureAnchors(
+        "night_prayer",
+        localDate,
+        psalterWeek,
+      ),
+      steps: [
+        createOfficeStep(
+          1,
+          "ordinary",
+          "Begin with the examination of conscience.",
+          "Metadata only.",
+        ),
+        createOfficeStep(
+          2,
+          "psalter",
+          `Use ${weekday} Night Prayer from the psalter.`,
+          "Do not store official translated texts.",
+        ),
+        createOfficeStep(
+          3,
+          "closing",
+          "Use the concluding prayer indicated in the book.",
+          "Physical breviary carries the text.",
+        ),
+      ],
+    },
+  ];
+}
+
+export function getOfficeScriptureAnchors(
+  hourType: PrayerItemType,
+  localDate: string,
+  psalterWeek: number,
+): ScriptureAnchor[] {
+  const weekday = getWeekdayName(localDate);
+
+  if (
+    hourType === "morning_prayer" &&
+    psalterWeek === 2 &&
+    weekday === "Thursday"
+  ) {
+    return [
+      {
+        title: "Psalmody",
+        citation: "Psalm 80; Isaiah 12:1-6; Psalm 81",
+        role: "Psalms and canticle",
+        text: "Convert us, O God: and shew us thy face, and we shall be saved.",
+        source: "public_domain",
+        sourceLabel: "Douay-Rheims 1899, Psalm 79:4",
+        reflection:
+          "Let the morning begin as a cry for conversion, not as a performance report.",
+      },
+      {
+        title: "Short reading",
+        citation: "Romans 8:18-21",
+        role: "Scripture reading",
+        text: "The sufferings of this time are not worthy to be compared with the glory to come.",
+        source: "public_domain",
+        sourceLabel: "Douay-Rheims 1899, Romans 8:18",
+        reflection:
+          "Hope is not mood. Hope is obedience under the weight of glory.",
+      },
+    ];
+  }
+
+  if (hourType === "night_prayer" && weekday === "Thursday") {
+    return [
+      {
+        title: "Psalmody",
+        citation: "Psalm 16",
+        role: "Psalm",
+        text: "Preserve me, O Lord, for I have put my trust in thee.",
+        source: "public_domain",
+        sourceLabel: "Douay-Rheims 1899, Psalm 15:1",
+        reflection:
+          "End the day by placing your body, memory, and unfinished work under protection.",
+      },
+      {
+        title: "Short reading",
+        citation: "1 Thessalonians 5:23",
+        role: "Scripture reading",
+        text: "May the God of peace himself sanctify you in all things.",
+        source: "public_domain",
+        sourceLabel: "Douay-Rheims 1899, 1 Thessalonians 5:23",
+        reflection:
+          "The last word of the day is not scorekeeping. It is sanctification.",
+      },
+    ];
+  }
+
+  return [
+    {
+      title: "Office scripture",
+      citation: `Psalter Week ${toRomanNumeral(psalterWeek)}, ${weekday}`,
+      role: "Psalter reference",
+      text: null,
+      source: "citation_only",
+      sourceLabel: "Liturgy of the Hours metadata",
+      reflection:
+        "Open the appointed psalmody and let Scripture name the desire of the hour.",
+    },
+  ];
+}
+
+function createOfficeStep(
+  order: number,
+  sectionType: string,
+  instruction: string,
+  copyrightSafeNote: string,
+): OfficeGuideStep {
+  return {
+    order,
+    sectionType,
+    pageStart: null,
+    pageEnd: null,
+    userPageStart: null,
+    userPageEnd: null,
+    instruction,
+    copyrightSafeNote,
+    contentLicenseStatus: "metadata_only",
   };
 }
 

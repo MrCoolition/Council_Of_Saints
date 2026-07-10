@@ -5,8 +5,8 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { FormationConsole } from "@/components/formation-console";
-import { formatPrayerItem } from "@/lib/domain";
-import type { OfficeGuide } from "@/lib/demo-data";
+import { OfficeGuidePanels } from "@/components/office-guide-panels";
+import type { TodayPayload } from "@/lib/demo-data";
 import { getTodayPayload } from "@/server/today";
 
 export const dynamic = "force-dynamic";
@@ -75,6 +75,8 @@ export default async function Home() {
           </figure>
         </section>
 
+        <PrayerMagnet today={today} />
+
         <FormationConsole
           defaultDifficultyLevel={today.prayerRule.difficultyLevel}
           defaultEnabledItems={today.prayerRule.enabledItems}
@@ -84,13 +86,74 @@ export default async function Home() {
           localDate={today.localDate}
         />
 
-        <section className="grid gap-4 lg:grid-cols-2">
-          {today.officeGuides.map((guide) => (
-            <OfficeGuidePanel guide={guide} key={guide.hourType} />
-          ))}
-        </section>
+        <OfficeGuidePanels
+          guides={today.officeGuides}
+          localDate={today.localDate}
+        />
       </div>
     </main>
+  );
+}
+
+function PrayerMagnet({ today }: { today: TodayPayload }) {
+  const morningGuide = today.officeGuides.find(
+    (guide) => guide.hourType === "morning_prayer",
+  );
+  const nightGuide = today.officeGuides.find(
+    (guide) => guide.hourType === "night_prayer",
+  );
+  const primaryAnchor = morningGuide?.scriptureAnchors[0];
+  const nightAnchor = nightGuide?.scriptureAnchors[0];
+
+  return (
+    <section className="rounded-lg border border-emerald-950 bg-emerald-950 p-5 text-amber-50 shadow-sm">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-center">
+        <div>
+          <p className="text-sm font-semibold uppercase text-amber-200">
+            Divine intervention
+          </p>
+          <h2 className="mt-2 max-w-2xl text-3xl font-semibold leading-tight">
+            Open the book. Let Scripture pull first.
+          </h2>
+          <p className="mt-4 max-w-2xl text-base leading-7 text-amber-100">
+            {primaryAnchor?.reflection ??
+              "Begin with the appointed psalmody and let the hour give your soul its first words."}
+          </p>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MagnetStep
+            label="Book"
+            value={`${today.breviary.currentVolume}, Week ${today.liturgicalDay.psalterWeek}`}
+          />
+          <MagnetStep
+            label="Morning word"
+            value={primaryAnchor?.citation ?? "Psalter"}
+          />
+          <MagnetStep
+            label="Night guard"
+            value={nightAnchor?.citation ?? "Night Prayer"}
+          />
+        </div>
+      </div>
+
+      {primaryAnchor?.text ? (
+        <p className="mt-5 border-t border-emerald-800 pt-4 text-lg font-medium leading-8 text-amber-50">
+          &quot;{primaryAnchor.text}&quot;
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function MagnetStep({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-l border-emerald-800 pl-3">
+      <p className="text-xs font-semibold uppercase text-amber-200">{label}</p>
+      <p className="mt-2 text-sm font-semibold leading-6 text-amber-50">
+        {value}
+      </p>
+    </div>
   );
 }
 
@@ -137,47 +200,5 @@ function StatusPill({
       <Icon aria-hidden className="size-4 shrink-0" />
       <span className="truncate">{label}</span>
     </span>
-  );
-}
-
-function OfficeGuidePanel({ guide }: { guide: OfficeGuide }) {
-  return (
-    <section className="rounded-lg border border-stone-300 bg-[var(--panel)] p-5 shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-stone-200 pb-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-sm font-semibold text-[var(--accent)]">
-            {formatPrayerItem(guide.hourType)}
-          </p>
-          <h2 className="mt-2 text-2xl font-semibold text-stone-950">
-            {guide.volume} | Psalter Week {guide.psalterWeek}
-          </h2>
-        </div>
-      </div>
-
-      <p className="mt-4 text-sm leading-6 text-stone-700">
-        {guide.generalNote}
-      </p>
-
-      <ol className="mt-4 space-y-3">
-        {guide.steps.map((step) => (
-          <li
-            className="grid gap-3 border-t border-stone-200 pt-3 sm:grid-cols-[3rem_1fr]"
-            key={step.order}
-          >
-            <span className="flex size-10 items-center justify-center rounded-md bg-stone-900 font-mono text-sm text-amber-50">
-              {step.order}
-            </span>
-            <div>
-              <p className="text-sm font-semibold capitalize text-stone-950">
-                {step.sectionType.replaceAll("_", " ")}
-              </p>
-              <p className="mt-1 text-sm leading-6 text-stone-700">
-                {step.instruction}
-              </p>
-            </div>
-          </li>
-        ))}
-      </ol>
-    </section>
   );
 }
