@@ -23,12 +23,24 @@ export type ScriptureLocation = {
   chapter: number;
 };
 
+export type ScripturePassage = ScriptureLocation & {
+  verseStart: number | null;
+  verseEnd: number | null;
+};
+
+export type ScriptureReturnSource =
+  | "today"
+  | "office-morning"
+  | "office-evening"
+  | "office-night";
+
 export type ParsedScriptureReference =
   | {
       ok: true;
       book: ScriptureBook;
       chapter: number;
-      verse: number | null;
+      verseStart: number | null;
+      verseEnd: number | null;
     }
   | {
       ok: false;
@@ -367,21 +379,33 @@ export function getTestamentLabel(testament: ScriptureTestament) {
 export function formatScriptureReference(
   book: ScriptureBook,
   chapter: number,
-  verse: number | null = null,
+  verseStart: number | null = null,
+  verseEnd: number | null = verseStart,
 ) {
-  return verse ? `${book.name} ${chapter}:${verse}` : `${book.name} ${chapter}`;
+  if (verseStart === null) {
+    return `${book.name} ${chapter}`;
+  }
+
+  const verseRange =
+    verseEnd !== null && verseEnd !== verseStart
+      ? `${verseStart}-${verseEnd}`
+      : String(verseStart);
+
+  return `${book.name} ${chapter}:${verseRange}`;
 }
 
 export function parseScriptureReference(
   rawReference: string,
 ): ParsedScriptureReference {
   const reference = rawReference.trim();
-  const match = reference.match(/^(.+?)\s+(\d+)(?:\s*:\s*(\d+))?$/);
+  const match = reference.match(
+    /^(.+?)\s+(\d+)(?:\s*:\s*(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?)?$/,
+  );
 
   if (!match) {
     return {
       ok: false,
-      message: "Use a reference such as John 3 or John 3:16.",
+      message: "Use a reference such as John 3, John 3:16, or John 3:16-18.",
     };
   }
 
@@ -405,16 +429,127 @@ export function parseScriptureReference(
     };
   }
 
-  const verse = match[3] ? Number(match[3]) : null;
+  const verseStart = match[3] ? Number(match[3]) : null;
+  const verseEnd = match[4] ? Number(match[4]) : verseStart;
 
-  if (verse !== null && (!Number.isInteger(verse) || verse < 1)) {
+  if (
+    verseStart !== null &&
+    (!Number.isSafeInteger(verseStart) || verseStart < 1)
+  ) {
     return {
       ok: false,
       message: "Verse numbers must be positive whole numbers.",
     };
   }
 
-  return { ok: true, book, chapter, verse };
+  if (
+    verseEnd !== null &&
+    (!Number.isSafeInteger(verseEnd) ||
+      verseEnd < 1 ||
+      (verseStart !== null && verseEnd < verseStart))
+  ) {
+    return {
+      ok: false,
+      message: "The ending verse must be at or after the starting verse.",
+    };
+  }
+
+  return { ok: true, book, chapter, verseStart, verseEnd };
+}
+
+export function parseScripturePassage(
+  rawPassage: string | readonly string[] | undefined,
+): ScripturePassage | null {
+  const passage = Array.isArray(rawPassage) ? rawPassage[0] : rawPassage;
+
+  if (!passage) {
+    return null;
+  }
+
+  const match = passage.match(
+    /^([a-z0-9]+(?:-[a-z0-9]+)*)\.(\d+)(?:\.(\d+)(?:-(\d+))?)?$/,
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const book = getScriptureBook(match[1]);
+  const chapter = Number(match[2]);
+  const verseStart = match[3] ? Number(match[3]) : null;
+  const verseEnd = match[4] ? Number(match[4]) : verseStart;
+
+  if (
+    !book ||
+    !Number.isSafeInteger(chapter) ||
+    chapter < 1 ||
+    chapter > book.chapters ||
+    (verseStart !== null &&
+      (!Number.isSafeInteger(verseStart) || verseStart < 1)) ||
+    (verseEnd !== null &&
+      (!Number.isSafeInteger(verseEnd) ||
+        verseEnd < 1 ||
+        (verseStart !== null && verseEnd < verseStart)))
+  ) {
+    return null;
+  }
+
+  return {
+    bookId: book.id,
+    chapter,
+    verseStart,
+    verseEnd,
+  };
+}
+
+export function formatScripturePassage(passage: ScripturePassage) {
+  const book = getScriptureBook(passage.bookId);
+
+  if (!book || !isValidScripturePassage(passage, book)) {
+    return null;
+  }
+
+  const verseRange =
+    passage.verseStart === null
+      ? ""
+      : passage.verseEnd !== null &&
+          passage.verseEnd !== passage.verseStart
+        ? `.${passage.verseStart}-${passage.verseEnd}`
+        : `.${passage.verseStart}`;
+
+  return `${book.id}.${passage.chapter}${verseRange}`;
+}
+
+export function getScriptureHref(
+  passage: ScripturePassage,
+  from?: ScriptureReturnSource | null,
+) {
+  const formattedPassage = formatScripturePassage(passage);
+
+  if (!formattedPassage) {
+    return "/scripture";
+  }
+
+  const params = new URLSearchParams({ passage: formattedPassage });
+
+  if (from) {
+    params.set("from", from);
+  }
+
+  return `/scripture?${params.toString()}`;
+}
+
+export function parseScriptureReturnSource(
+  rawSource: string | readonly string[] | undefined,
+): ScriptureReturnSource | null {
+  const source = Array.isArray(rawSource) ? rawSource[0] : rawSource;
+
+  return source === "today" ||
+    source === "office-morning" ||
+    source === "office-evening" ||
+    source === "office-night"
+    ? source
+    : null;
 }
 
 export function isScriptureBookData(value: unknown): value is ScriptureBookData {
@@ -484,6 +619,24 @@ export function getAdjacentScriptureChapter(
 
 function normalizeBookName(value: string) {
   return value.toLocaleLowerCase("en-US").replace(/[^a-z0-9]/g, "");
+}
+
+function isValidScripturePassage(
+  passage: ScripturePassage,
+  book: ScriptureBook,
+) {
+  return (
+    Number.isSafeInteger(passage.chapter) &&
+    passage.chapter >= 1 &&
+    passage.chapter <= book.chapters &&
+    ((passage.verseStart === null && passage.verseEnd === null) ||
+      (passage.verseStart !== null &&
+        passage.verseEnd !== null &&
+        Number.isSafeInteger(passage.verseStart) &&
+        Number.isSafeInteger(passage.verseEnd) &&
+        passage.verseStart >= 1 &&
+        passage.verseEnd >= passage.verseStart))
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

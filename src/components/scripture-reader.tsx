@@ -22,6 +22,7 @@ import {
   getAdjacentScriptureChapter,
   getChapterVerses,
   getScriptureBook,
+  getScriptureHref,
   getScriptureBookUrl,
   getTestamentLabel,
   isScriptureBookData,
@@ -30,6 +31,8 @@ import {
   type ScriptureBook,
   type ScriptureBookData,
   type ScriptureLocation,
+  type ScripturePassage,
+  type ScriptureReturnSource,
 } from "@/lib/scripture";
 
 type ReaderResource = {
@@ -65,9 +68,21 @@ const textSizeClasses: Record<TextSize, string> = {
   large: "text-xl leading-10",
 };
 
-export function ScriptureReader() {
-  const [location, setLocation] =
-    useState<ScriptureLocation>(defaultLocation);
+export function ScriptureReader({
+  initialPassage = null,
+  returnSource = null,
+}: {
+  initialPassage?: ScripturePassage | null;
+  returnSource?: ScriptureReturnSource | null;
+}) {
+  const [location, setLocation] = useState<ScriptureLocation>(() =>
+    initialPassage
+      ? {
+          bookId: initialPassage.bookId,
+          chapter: initialPassage.chapter,
+        }
+      : defaultLocation,
+  );
   const [resource, setResource] = useState<ReaderResource | null>(null);
   const [failure, setFailure] = useState<ReaderFailure | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -75,7 +90,10 @@ export function ScriptureReader() {
   const [referenceInput, setReferenceInput] = useState("");
   const [referenceFeedback, setReferenceFeedback] =
     useState<ReferenceFeedback | null>(null);
-  const [pendingVerse, setPendingVerse] = useState<number | null>(null);
+  const [selectedPassage, setSelectedPassage] =
+    useState<ScripturePassage | null>(initialPassage);
+  const [pendingPassage, setPendingPassage] =
+    useState<ScripturePassage | null>(initialPassage);
   const [bookmarks, setBookmarks] = useState<StoredBookmark[]>([]);
   const [textSize, setTextSize] =
     useState<TextSize>("comfortable");
@@ -100,10 +118,17 @@ export function ScriptureReader() {
       bookmark.bookId === location.bookId &&
       bookmark.chapter === location.chapter,
   );
-  const missingTargetVerse =
-    pendingVerse !== null &&
+  const selectedRange =
+    selectedPassage?.bookId === location.bookId &&
+    selectedPassage.chapter === location.chapter
+      ? selectedPassage
+      : null;
+  const missingTargetRange =
+    selectedRange?.verseStart !== null &&
+    selectedRange?.verseStart !== undefined &&
     bookData !== null &&
-    !verses.some((verse) => verse.number === pendingVerse);
+    (!verses.some((verse) => verse.number === selectedRange.verseStart) ||
+      !verses.some((verse) => verse.number === selectedRange.verseEnd));
 
   const filteredBooks = useMemo(() => {
     const filter = bookFilter.trim().toLocaleLowerCase("en-US");
@@ -131,7 +156,7 @@ export function ScriptureReader() {
       const storedBookmarks = readStoredBookmarks();
       const storedTextSize = readStoredTextSize();
 
-      if (storedResume) {
+      if (storedResume && !initialPassage) {
         setLocation(storedResume);
       }
 
@@ -141,7 +166,7 @@ export function ScriptureReader() {
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, []);
+  }, [initialPassage]);
 
   useEffect(() => {
     if (storageReady) {
@@ -204,27 +229,52 @@ export function ScriptureReader() {
   }, [loadAttempt, location.bookId]);
 
   useEffect(() => {
-    if (pendingVerse === null || !bookData) {
+    if (
+      !pendingPassage ||
+      !bookData ||
+      pendingPassage.bookId !== location.bookId ||
+      pendingPassage.chapter !== location.chapter
+    ) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
+      const firstVerse =
+        pendingPassage.verseStart ?? verses.at(0)?.number ?? null;
+
+      if (firstVerse === null) {
+        setPendingPassage(null);
+        return;
+      }
+
       const verse = document.getElementById(
-        getVerseElementId(location.bookId, location.chapter, pendingVerse),
+        getVerseElementId(location.bookId, location.chapter, firstVerse),
       );
 
       if (verse) {
         verse.scrollIntoView({ behavior: "smooth", block: "center" });
         verse.focus({ preventScroll: true });
       }
+
+      setPendingPassage(null);
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, [bookData, location.bookId, location.chapter, pendingVerse]);
+  }, [
+    bookData,
+    location.bookId,
+    location.chapter,
+    pendingPassage,
+    verses,
+  ]);
 
   function openLocation(
     nextLocation: ScriptureLocation,
-    options: { scroll?: boolean; verse?: number | null } = {},
+    options: {
+      scroll?: boolean;
+      verseStart?: number | null;
+      verseEnd?: number | null;
+    } = {},
   ) {
     const nextBook = getScriptureBook(nextLocation.bookId);
 
@@ -236,11 +286,24 @@ export function ScriptureReader() {
       return;
     }
 
+    const verseStart = options.verseStart ?? null;
+    const nextPassage: ScripturePassage = {
+      ...nextLocation,
+      verseStart,
+      verseEnd: verseStart === null ? null : (options.verseEnd ?? verseStart),
+    };
+
     setLocation(nextLocation);
-    setPendingVerse(options.verse ?? null);
+    setSelectedPassage(nextPassage);
+    setPendingPassage(nextPassage);
     setFailure(null);
     setReferenceFeedback(null);
     setCatalogOpen(false);
+    window.history.replaceState(
+      null,
+      "",
+      getScriptureHref(nextPassage, returnSource),
+    );
 
     if (options.scroll) {
       window.requestAnimationFrame(() => {
@@ -264,12 +327,17 @@ export function ScriptureReader() {
     const formattedReference = formatScriptureReference(
       parsed.book,
       parsed.chapter,
-      parsed.verse,
+      parsed.verseStart,
+      parsed.verseEnd,
     );
 
     openLocation(
       { bookId: parsed.book.id, chapter: parsed.chapter },
-      { scroll: true, verse: parsed.verse },
+      {
+        scroll: true,
+        verseStart: parsed.verseStart,
+        verseEnd: parsed.verseEnd,
+      },
     );
     setReferenceInput(formattedReference);
     setReferenceFeedback({
@@ -314,10 +382,10 @@ export function ScriptureReader() {
   const newTestamentBooks = filteredBooks.filter(
     (book) => book.testament === "new",
   );
-  const activeFeedback = missingTargetVerse
+  const activeFeedback = missingTargetRange
     ? {
         tone: "error" as const,
-        message: `Verse ${pendingVerse} is not present in this local chapter file.`,
+        message: `${formatPassageVerseLabel(selectedRange)} is not fully present in this local chapter file.`,
       }
     : referenceFeedback;
 
@@ -350,7 +418,7 @@ export function ScriptureReader() {
                   className="h-11 w-full rounded-md border border-stone-300 bg-white pl-9 pr-3 text-sm text-stone-950 outline-none transition placeholder:text-stone-400 focus:border-emerald-900 focus:ring-2 focus:ring-emerald-900/15"
                   id="scripture-reference"
                   onChange={(event) => setReferenceInput(event.target.value)}
-                  placeholder="John 3:16"
+                  placeholder="John 3:16-18"
                   spellCheck={false}
                   value={referenceInput}
                 />
@@ -365,7 +433,9 @@ export function ScriptureReader() {
           </div>
 
           <div className="max-w-xl space-y-1 text-xs leading-5 text-stone-500">
-            <p>Try Genesis 1, Psalm 22, John 3:16, or 1 Corinthians 13.</p>
+            <p>
+              Try Genesis 1, Psalm 22, John 3:16-18, or 1 Corinthians 13.
+            </p>
             <p>
               This edition follows Vulgate Psalm numbering. Many modern Bibles
               number some Psalms differently; Psalm 22 here is commonly numbered
@@ -695,9 +765,18 @@ export function ScriptureReader() {
                   " ",
                 )}
               >
-                {verses.map((verse) => (
-                  <li
-                    className="grid scroll-mt-24 grid-cols-[2rem_minmax(0,1fr)] gap-3 rounded-md outline-none transition focus:bg-amber-50 focus:ring-2 focus:ring-amber-400/70 sm:grid-cols-[2.5rem_minmax(0,1fr)]"
+                {verses.map((verse) => {
+                  const selected = isVerseInPassage(verse.number, selectedRange);
+
+                  return (
+                    <li
+                    aria-current={selected ? "true" : undefined}
+                    className={[
+                      "grid scroll-mt-24 grid-cols-[2rem_minmax(0,1fr)] gap-3 rounded-md px-2 py-1 outline-none transition focus:bg-amber-50 focus:ring-2 focus:ring-amber-400/70 sm:grid-cols-[2.5rem_minmax(0,1fr)]",
+                      selected
+                        ? "bg-amber-100 ring-1 ring-inset ring-amber-300"
+                        : "",
+                    ].join(" ")}
                     id={getVerseElementId(
                       selectedBook.id,
                       location.chapter,
@@ -717,7 +796,8 @@ export function ScriptureReader() {
                       {verse.text}
                     </span>
                   </li>
-                ))}
+                  );
+                })}
               </ol>
             )}
           </div>
@@ -990,6 +1070,28 @@ function getLocationNavigationLabel(
   return book
     ? `${prefix}: ${formatScriptureReference(book, location.chapter)}`
     : `${prefix} unavailable`;
+}
+
+function isVerseInPassage(
+  verse: number,
+  passage: ScripturePassage | null,
+) {
+  if (passage?.verseStart === null || passage?.verseStart === undefined) {
+    return false;
+  }
+
+  const verseEnd = passage.verseEnd ?? passage.verseStart;
+  return verse >= passage.verseStart && verse <= verseEnd;
+}
+
+function formatPassageVerseLabel(passage: ScripturePassage | null) {
+  if (passage?.verseStart === null || passage?.verseStart === undefined) {
+    return "The requested passage";
+  }
+
+  return passage.verseEnd !== null && passage.verseEnd !== passage.verseStart
+    ? `Verses ${passage.verseStart}-${passage.verseEnd}`
+    : `Verse ${passage.verseStart}`;
 }
 
 function getVerseElementId(bookId: string, chapter: number, verse: number) {

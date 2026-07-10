@@ -5,7 +5,10 @@ import { ScriptureReader } from "@/components/scripture-reader";
 import {
   NEW_TESTAMENT_BOOKS,
   OLD_TESTAMENT_BOOKS,
+  parseScripturePassage,
+  parseScriptureReturnSource,
   SCRIPTURE_BOOKS,
+  type ScriptureReturnSource,
 } from "@/lib/scripture";
 
 export const metadata: Metadata = {
@@ -14,7 +17,42 @@ export const metadata: Metadata = {
     "Read the complete Catholic canon in the local Original Douay-Rheims 1582–1610 edition.",
 };
 
-export default function ScripturePage() {
+type ScripturePageSearchParams = {
+  passage?: string | string[];
+  from?: string | string[];
+};
+
+const returnLinks: Record<
+  ScriptureReturnSource,
+  { href: string; label: string }
+> = {
+  today: { href: "/#daily-scripture", label: "Return to Today’s passage" },
+  "office-morning": {
+    href: "/#office-morning_prayer",
+    label: "Return to Morning Prayer",
+  },
+  "office-evening": {
+    href: "/#office-evening_prayer",
+    label: "Return to Evening Prayer",
+  },
+  "office-night": {
+    href: "/#office-night_prayer",
+    label: "Return to Night Prayer",
+  },
+};
+
+export default async function ScripturePage({
+  searchParams,
+}: {
+  searchParams: Promise<ScripturePageSearchParams>;
+}) {
+  const query = await searchParams;
+  const initialPassage = parseScripturePassage(query.passage);
+  const returnSource = parseScriptureReturnSource(query.from);
+  const returnLink = returnSource
+    ? returnLinks[returnSource]
+    : { href: "/", label: "Today" };
+
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
@@ -30,10 +68,10 @@ export default function ScripturePage() {
 
           <Link
             className="inline-flex h-10 w-fit items-center gap-2 rounded-md border border-stone-300 bg-white px-3 text-sm font-semibold text-stone-800 transition hover:border-emerald-900 hover:text-emerald-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
-            href="/"
+            href={returnLink.href}
           >
             <ArrowLeft aria-hidden className="size-4" />
-            Today
+            {returnLink.label}
           </Link>
         </header>
 
@@ -91,7 +129,10 @@ export default function ScripturePage() {
           </div>
         </section>
 
-        <ScriptureReader />
+        <ScriptureReader
+          initialPassage={initialPassage}
+          returnSource={returnSource}
+        />
 
         <footer className="flex flex-col gap-2 border-t border-stone-300 py-5 text-xs leading-5 text-stone-500 sm:flex-row sm:items-center sm:justify-between">
           <p>

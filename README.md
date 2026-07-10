@@ -30,8 +30,8 @@ bun dev
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
 The app includes a daily formation hub, a complete local 73-book Catholic
-Scripture reader, a guided Rosary, a prayer/devotion library, and physical-book
-guidance for the Liturgy of the Hours.
+Scripture reader, a guided Rosary, a prayer/devotion library, and an automatic
+Scripture Psalter for Morning, Evening, and Night Prayer.
 
 ## Learn More
 

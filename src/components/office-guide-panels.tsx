@@ -1,139 +1,44 @@
-"use client";
-
 import {
   BookOpen,
-  Check,
   ChevronDown,
-  ListOrdered,
-  Save,
+  ExternalLink,
+  Moon,
   ScrollText,
+  Sun,
+  Sunset,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import type { OfficeGuide, OfficeGuideStep } from "@/lib/demo-data";
+import Link from "next/link";
+import type { OfficeGuide } from "@/lib/office-psalter";
 import { formatPrayerItem } from "@/lib/domain";
+import {
+  getScriptureHref,
+  type ScriptureReturnSource,
+} from "@/lib/scripture";
+import {
+  loadScriptureAnchor,
+  type LoadedScriptureAnchor,
+} from "@/server/scripture-passages";
 
 type OfficeGuidePanelsProps = {
   guides: OfficeGuide[];
-  localDate: string;
 };
 
-type PageDraft = {
-  pageStart: string;
-  pageEnd: string;
+type LoadedOfficeGuide = Omit<OfficeGuide, "scriptureAnchors"> & {
+  scriptureAnchors: LoadedScriptureAnchor[];
 };
 
-type SaveStatus =
-  | "idle"
-  | "saving"
-  | "account"
-  | "device"
-  | "invalid"
-  | "error";
+const DOXOLOGY =
+  "Glory be to the Father, and to the Son, and to the Holy Ghost. As it was in the beginning, is now, and ever shall be, world without end. Amen.";
 
-type ValidPageDraft = {
-  pageStart: number;
-  pageEnd: number | null;
-};
-
-const pageStoragePrefix = "sanctum-council:large-print-pages";
-
-export function OfficeGuidePanels({ guides, localDate }: OfficeGuidePanelsProps) {
-  const [drafts, setDrafts] = useState<Record<string, PageDraft>>(() =>
-    getInitialDrafts(guides),
+export async function OfficeGuidePanels({ guides }: OfficeGuidePanelsProps) {
+  const loadedGuides = await Promise.all(
+    guides.map(async (guide) => ({
+      ...guide,
+      scriptureAnchors: await Promise.all(
+        guide.scriptureAnchors.map(loadScriptureAnchor),
+      ),
+    })),
   );
-  const [saveStatuses, setSaveStatuses] = useState<Record<string, SaveStatus>>(
-    {},
-  );
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      try {
-        const rawValue = window.localStorage.getItem(
-          getPageStorageKey(localDate),
-        );
-
-        if (!rawValue) {
-          return;
-        }
-
-        const stored = JSON.parse(rawValue) as Record<string, PageDraft>;
-        setDrafts((current) => ({ ...current, ...stored }));
-      } catch {
-        return;
-      }
-    }, 0);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [localDate]);
-
-  function updateDraft(key: string, field: keyof PageDraft, value: string) {
-    setDrafts((current) => ({
-      ...current,
-      [key]: {
-        ...(current[key] ?? { pageStart: "", pageEnd: "" }),
-        [field]: value.replace(/[^\d]/g, "").slice(0, 4),
-      },
-    }));
-    setSaveStatuses((current) => ({ ...current, [key]: "idle" }));
-  }
-
-  async function saveReference(guide: OfficeGuide, step: OfficeGuideStep) {
-    const key = getReferenceKey(guide.hourType, step);
-    const draft = drafts[key];
-    const validDraft = validatePageDraft(draft);
-
-    if (!validDraft) {
-      setSaveStatuses((current) => ({ ...current, [key]: "invalid" }));
-      return;
-    }
-
-    const { pageStart, pageEnd } = validDraft;
-
-    const nextDrafts = {
-      ...drafts,
-      [key]: {
-        pageStart: String(pageStart),
-        pageEnd: pageEnd ? String(pageEnd) : "",
-      },
-    };
-
-    setDrafts(nextDrafts);
-    writePageStorage(localDate, nextDrafts);
-    setSaveStatuses((current) => ({ ...current, [key]: "saving" }));
-
-    try {
-      const response = await fetch("/api/book-reference", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          localDate,
-          hourType: guide.hourType,
-          sectionType: step.sectionType,
-          stepOrder: step.order,
-          pageStart,
-          pageEnd,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Book reference save failed with ${response.status}`);
-      }
-
-      const result = (await response.json()) as { mode?: string };
-      const saveMode = result.mode;
-
-      if (saveMode !== "account" && saveMode !== "device") {
-        throw new Error("Book reference save returned an invalid mode");
-      }
-
-      setSaveStatuses((current) => ({
-        ...current,
-        [key]: saveMode,
-      }));
-    } catch {
-      setSaveStatuses((current) => ({ ...current, [key]: "error" }));
-    }
-  }
 
   return (
     <section
@@ -141,298 +46,255 @@ export function OfficeGuidePanels({ guides, localDate }: OfficeGuidePanelsProps)
       className="scroll-mt-24"
       id="office"
     >
-      <header className="mb-5 max-w-3xl">
+      <header className="mb-6 max-w-3xl">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--accent)]">
-          Divine Office
+          Daily Psalter
         </p>
         <h2
           className="mt-2 text-3xl font-semibold text-stone-950 sm:text-4xl"
           id="office-guides-heading"
         >
-          Pray the hours with the Church
+          The prayer is here. Begin.
         </h2>
         <p className="mt-3 max-w-2xl text-sm leading-7 text-stone-600 sm:text-base">
-          Begin with the appointed Scripture. Open the book guide only when you
-          need the physical-page path.
+          No page numbers and no placeholder directions. The appointed psalms
+          and biblical canticles are opened below in prayer order from the local
+          public-domain Scripture library.
         </p>
       </header>
 
-      <div className="grid gap-5 xl:grid-cols-2">
-        {guides.map((guide) => (
-          <article
-            aria-labelledby={`office-${guide.hourType}-heading`}
-            className="rounded-2xl border border-stone-300/90 bg-[var(--panel)] p-4 shadow-[0_16px_42px_rgba(44,39,31,0.06)] sm:p-6"
-            key={guide.hourType}
-          >
-            <div className="flex items-start justify-between gap-4 border-b border-stone-200 pb-5">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--accent)]">
-                  {formatPrayerItem(guide.hourType)}
-                </p>
-                <h3
-                  className="mt-2 text-2xl font-semibold text-stone-950 sm:text-3xl"
-                  id={`office-${guide.hourType}-heading`}
-                >
-                  {guide.volume} · Psalter Week {guide.psalterWeek}
-                </h3>
-              </div>
-              <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-emerald-950 text-amber-100 shadow-sm">
-                <BookOpen aria-hidden className="size-5" />
+      <div className="space-y-6">
+        {loadedGuides.map((guide) => (
+          <OfficeHour key={guide.hourType} guide={guide} />
+        ))}
+      </div>
+
+      <aside className="mt-5 rounded-xl border border-stone-300 bg-[var(--panel-soft)] px-4 py-3 text-xs leading-5 text-stone-600 sm:px-5">
+        This Scripture-first personal office follows the Roman four-week
+        psalmody and one-week Night Prayer cycle. Proper antiphons, hymns,
+        responsories, intercessions, and collects can vary on Sundays, feasts,
+        and solemnities and are not reproduced here.
+      </aside>
+    </section>
+  );
+}
+
+function OfficeHour({
+  guide,
+}: {
+  guide: LoadedOfficeGuide;
+}) {
+  const Icon =
+    guide.hourType === "morning_prayer"
+      ? Sun
+      : guide.hourType === "evening_prayer"
+        ? Sunset
+        : Moon;
+
+  return (
+    <article
+      aria-labelledby={`office-${guide.hourType}-heading`}
+      className="scroll-mt-24 overflow-hidden rounded-2xl border border-stone-300/90 bg-[var(--panel)] shadow-[0_16px_42px_rgba(44,39,31,0.06)]"
+      id={`office-${guide.hourType}`}
+    >
+      <details className="group" open>
+        <summary className="flex cursor-pointer list-none items-start justify-between gap-4 p-5 marker:content-none sm:p-7 [&::-webkit-details-marker]:hidden">
+          <span className="flex min-w-0 items-start gap-4">
+            <span className="inline-flex size-12 shrink-0 items-center justify-center rounded-xl bg-emerald-950 text-amber-100 shadow-sm">
+              <Icon aria-hidden className="size-5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-xs font-bold uppercase tracking-[0.16em] text-[var(--accent)]">
+                {formatPrayerItem(guide.hourType)}
               </span>
-            </div>
+              <span
+                className="mt-1 block font-serif text-2xl font-semibold text-stone-950 sm:text-3xl"
+                id={`office-${guide.hourType}-heading`}
+              >
+                {guide.cycleLabel}
+              </span>
+              <span className="mt-2 block max-w-3xl text-sm leading-6 text-stone-600">
+                {guide.generalNote}
+              </span>
+            </span>
+          </span>
+          <ChevronDown
+            aria-hidden
+            className="mt-3 size-5 shrink-0 text-stone-500 transition-transform group-open:rotate-180"
+          />
+        </summary>
 
-            <p className="mt-4 font-serif text-lg leading-7 text-stone-800">
-              {guide.generalNote}
+        <div className="border-t border-stone-200 px-4 pb-5 pt-4 sm:px-7 sm:pb-7">
+          <section
+            aria-label={`${formatPrayerItem(guide.hourType)} opening`}
+            className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 sm:p-5"
+          >
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-amber-900">
+              Begin
             </p>
-            <p className="mt-2 text-xs font-semibold uppercase leading-5 tracking-wide text-stone-500">
-              {guide.bookReferenceNote}
-            </p>
-
-            <div className="mt-5 rounded-xl border border-stone-200 bg-white/60 p-4">
-              <div className="flex items-center gap-2">
-                <ScrollText aria-hidden className="size-4 text-[var(--accent)]" />
-                <p className="text-sm font-bold text-stone-950">Scripture</p>
-              </div>
-              <div className="mt-4 space-y-4">
-                {guide.scriptureAnchors.map((anchor) => (
-                  <blockquote
-                    className="border-l-2 border-amber-500 pl-4"
-                    key={`${guide.hourType}:${anchor.title}:${anchor.citation}`}
-                  >
-                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                      <p className="text-sm font-semibold text-stone-950">
-                        {anchor.title}
-                      </p>
-                      <p className="font-mono text-xs text-stone-500">
-                        {anchor.citation}
-                      </p>
-                    </div>
-                    {anchor.text ? (
-                      <p className="mt-2 font-serif text-lg leading-7 text-stone-800">
-                        “{anchor.text}”
-                      </p>
-                    ) : null}
-                    <p className="mt-2 text-sm leading-6 text-stone-600">
-                      {anchor.reflection}
-                    </p>
-                    <cite className="mt-1 block text-xs not-italic text-stone-500">
-                      {anchor.sourceLabel}
-                    </cite>
-                  </blockquote>
-                ))}
-              </div>
+            <div className="mt-3 space-y-2 font-serif text-lg leading-8 text-stone-800">
+              {guide.openingLines.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
             </div>
+          </section>
 
-            <details className="group mt-4 rounded-xl border border-stone-300 bg-[var(--panel-soft)]">
-              <summary className="flex min-h-14 cursor-pointer items-center justify-between gap-3 rounded-xl px-4 py-3 text-left text-stone-950 transition hover:bg-white/70">
-                <span className="flex min-w-0 items-center gap-3">
-                  <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl bg-stone-900 text-amber-50">
-                    <ListOrdered aria-hidden className="size-4" />
+          <div className="mt-5 space-y-5">
+            {guide.scriptureAnchors.map((anchor, index) => (
+              <PrayerPassage
+                anchor={anchor}
+                hourType={guide.hourType}
+                index={index}
+                key={`${guide.hourType}:${anchor.title}:${anchor.citation}`}
+              />
+            ))}
+          </div>
+
+          <section
+            aria-label={`${formatPrayerItem(guide.hourType)} conclusion`}
+            className="mt-5 rounded-xl border border-emerald-900/15 bg-emerald-50/70 p-4 sm:p-5"
+          >
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-900">
+              Respond
+            </p>
+            <ol className="mt-4 grid gap-3 md:grid-cols-3">
+              {guide.closingSteps.map((step, index) => (
+                <li
+                  className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3 rounded-xl border border-emerald-900/10 bg-white/70 p-3"
+                  key={`${step.title}:${step.instruction}`}
+                >
+                  <span className="font-mono text-xs font-bold text-[var(--accent)]">
+                    {String(index + 1).padStart(2, "0")}
                   </span>
                   <span>
-                    <span className="block text-sm font-bold">Book guide</span>
-                    <span className="block text-xs leading-5 text-stone-500">
-                      {guide.steps.length} steps with page references
+                    <span className="block text-sm font-bold text-stone-950">
+                      {step.title}
+                    </span>
+                    <span className="mt-1 block text-sm leading-6 text-stone-700">
+                      {step.instruction}
                     </span>
                   </span>
-                </span>
-                <ChevronDown
-                  aria-hidden
-                  className="size-5 shrink-0 text-stone-500 transition-transform group-open:rotate-180"
-                />
-              </summary>
+                </li>
+              ))}
+            </ol>
+          </section>
+        </div>
+      </details>
+    </article>
+  );
+}
 
-              <ol className="space-y-4 border-t border-stone-200 p-4">
-                {guide.steps.map((step) => {
-                  const key = getReferenceKey(guide.hourType, step);
-                  const draft = drafts[key] ?? { pageStart: "", pageEnd: "" };
-                  const saveStatus = saveStatuses[key] ?? "idle";
-                  const canSave = draft.pageStart.length > 0;
-                  const statusId = `${key}:status`;
+function PrayerPassage({
+  anchor,
+  hourType,
+  index,
+}: {
+  anchor: LoadedScriptureAnchor;
+  hourType: OfficeGuide["hourType"];
+  index: number;
+}) {
+  const shouldPrayDoxology = anchor.title !== "Brief reading";
 
-                  return (
-                    <li
-                      className="grid gap-3 rounded-xl border border-stone-200 bg-white/80 p-3 sm:grid-cols-[2.75rem_1fr] sm:p-4"
-                      key={key}
-                    >
-                      <span className="flex size-11 items-center justify-center rounded-xl bg-emerald-950 font-mono text-sm text-amber-50">
-                        {step.order}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="min-w-0 sm:max-w-xs">
-                            <p className="text-sm font-bold capitalize text-stone-950">
-                              {step.sectionType.replaceAll("_", " ")}
-                            </p>
-                            <p className="mt-1 text-sm leading-6 text-stone-700">
-                              {step.instruction}
-                            </p>
-                          </div>
+  return (
+    <section className="overflow-hidden rounded-xl border border-stone-200 bg-white/70">
+      <header className="flex flex-col gap-3 border-b border-stone-200 bg-[var(--panel-soft)] px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-950 font-mono text-xs font-bold text-amber-100">
+            {String(index + 1).padStart(2, "0")}
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[var(--accent)]">
+              <ScrollText aria-hidden className="size-4 shrink-0" />
+              <p className="text-xs font-bold uppercase tracking-[0.13em]">
+                {anchor.title}
+              </p>
+            </div>
+            <h4 className="mt-1 font-serif text-xl font-semibold text-stone-950 sm:text-2xl">
+              {anchor.citation}
+            </h4>
+            <p className="mt-1 text-xs leading-5 text-stone-500">
+              {anchor.reflection}
+            </p>
+          </div>
+        </div>
+        <span className="shrink-0 text-xs font-semibold text-stone-500">
+          {anchor.role}
+        </span>
+      </header>
 
-                          <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.75rem] items-end gap-2 sm:w-64">
-                            <label
-                              className="grid gap-1 text-xs font-semibold text-stone-600"
-                              htmlFor={`${key}:start`}
-                            >
-                              Start page
-                              <input
-                                aria-describedby={statusId}
-                                aria-invalid={saveStatus === "invalid"}
-                                className="min-h-11 min-w-0 rounded-xl border border-stone-300 bg-white px-3 text-sm text-stone-950 outline-none transition focus:border-emerald-900"
-                                id={`${key}:start`}
-                                inputMode="numeric"
-                                onChange={(event) =>
-                                  updateDraft(
-                                    key,
-                                    "pageStart",
-                                    event.target.value,
-                                  )
-                                }
-                                placeholder="Page"
-                                value={draft.pageStart}
-                              />
-                            </label>
-                            <label
-                              className="grid gap-1 text-xs font-semibold text-stone-600"
-                              htmlFor={`${key}:end`}
-                            >
-                              End page
-                              <input
-                                aria-describedby={statusId}
-                                aria-invalid={saveStatus === "invalid"}
-                                className="min-h-11 min-w-0 rounded-xl border border-stone-300 bg-white px-3 text-sm text-stone-950 outline-none transition focus:border-emerald-900"
-                                id={`${key}:end`}
-                                inputMode="numeric"
-                                onChange={(event) =>
-                                  updateDraft(
-                                    key,
-                                    "pageEnd",
-                                    event.target.value,
-                                  )
-                                }
-                                placeholder="End"
-                                value={draft.pageEnd}
-                              />
-                            </label>
-                            <button
-                              aria-describedby={statusId}
-                              aria-label={`Save page for ${step.sectionType}`}
-                              className={[
-                                "inline-flex size-11 items-center justify-center rounded-xl border transition",
-                                canSave
-                                  ? "border-emerald-950 bg-emerald-950 text-amber-50 shadow-sm hover:bg-emerald-900"
-                                  : "border-stone-300 bg-stone-100 text-stone-400",
-                              ].join(" ")}
-                              disabled={!canSave || saveStatus === "saving"}
-                              onClick={() => saveReference(guide, step)}
-                              type="button"
-                            >
-                              {saveStatus === "account" ||
-                              saveStatus === "device" ? (
-                                <Check aria-hidden className="size-4" />
-                              ) : (
-                                <Save aria-hidden className="size-4" />
-                              )}
-                            </button>
-                          </div>
-                        </div>
-
-                        <p
-                          aria-live="polite"
-                          className={[
-                            "mt-2 text-xs",
-                            saveStatus === "invalid" || saveStatus === "error"
-                              ? "font-semibold text-red-800"
-                              : "text-stone-500",
-                          ].join(" ")}
-                          id={statusId}
-                          role="status"
-                        >
-                          {getSaveStatusLabel(saveStatus)}
-                        </p>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-            </details>
-          </article>
+      <div className="space-y-6 px-4 py-5 sm:px-6 sm:py-6">
+        {anchor.segments.map((segment) => (
+          <div key={`${segment.reference}:${segment.verses[0]?.number ?? 0}`}>
+            {anchor.segments.length > 1 ? (
+              <p className="mb-3 font-mono text-xs font-bold text-stone-500">
+                {segment.reference}
+              </p>
+            ) : null}
+            <ol
+              aria-label={`${segment.reference} verses`}
+              className="space-y-3 font-serif text-lg leading-8 text-stone-800 sm:text-xl sm:leading-9"
+            >
+              {segment.verses.map((verse) => (
+                <li
+                  className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3"
+                  key={`${segment.reference}:${verse.number}`}
+                >
+                  <span
+                    aria-hidden
+                    className="pt-1 text-right font-mono text-[0.68rem] font-bold text-[var(--accent)]"
+                  >
+                    {verse.label}
+                  </span>
+                  <span>
+                    <span className="sr-only">Verse {verse.label}. </span>
+                    {verse.text}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
         ))}
+
+        {shouldPrayDoxology ? (
+          <p className="border-l-2 border-amber-500 pl-4 font-serif text-base italic leading-7 text-stone-700">
+            {DOXOLOGY}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-stone-200 pt-4">
+          <BookOpen aria-hidden className="mr-1 size-4 text-[var(--accent)]" />
+          {anchor.segments.map((segment) => (
+            <Link
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 text-xs font-bold text-emerald-950 transition hover:border-emerald-900 hover:bg-emerald-50"
+              href={getScriptureHref(
+                segment.passage,
+                getReturnSource(hourType),
+              )}
+              key={`reader:${segment.reference}`}
+            >
+              Open {segment.reference}
+              <ExternalLink aria-hidden className="size-3.5" />
+            </Link>
+          ))}
+          <span className="ml-auto text-[0.7rem] text-stone-500">
+            {anchor.sourceLabel}
+          </span>
+        </div>
       </div>
     </section>
   );
 }
 
-function getInitialDrafts(guides: OfficeGuide[]) {
-  const drafts: Record<string, PageDraft> = {};
-
-  for (const guide of guides) {
-    for (const step of guide.steps) {
-      const pageStart = step.userPageStart ?? step.pageStart;
-      const pageEnd = step.userPageEnd ?? step.pageEnd;
-
-      drafts[getReferenceKey(guide.hourType, step)] = {
-        pageStart: pageStart ? String(pageStart) : "",
-        pageEnd: pageEnd ? String(pageEnd) : "",
-      };
-    }
+function getReturnSource(
+  hourType: OfficeGuide["hourType"],
+): ScriptureReturnSource {
+  if (hourType === "morning_prayer") {
+    return "office-morning";
   }
 
-  return drafts;
-}
-
-function getReferenceKey(hourType: OfficeGuide["hourType"], step: OfficeGuideStep) {
-  return `${hourType}:${step.sectionType}:${step.order}`;
-}
-
-function getPageStorageKey(localDate: string) {
-  return `${pageStoragePrefix}:${localDate}`;
-}
-
-function writePageStorage(localDate: string, drafts: Record<string, PageDraft>) {
-  try {
-    window.localStorage.setItem(getPageStorageKey(localDate), JSON.stringify(drafts));
-  } catch {
-    return;
-  }
-}
-
-function validatePageDraft(draft?: PageDraft): ValidPageDraft | null {
-  if (!draft?.pageStart) {
-    return null;
+  if (hourType === "evening_prayer") {
+    return "office-evening";
   }
 
-  const pageStart = Number(draft.pageStart);
-  const pageEnd = draft.pageEnd ? Number(draft.pageEnd) : null;
-
-  if (
-    !Number.isInteger(pageStart) ||
-    pageStart < 1 ||
-    pageStart > 5000 ||
-    (pageEnd !== null &&
-      (!Number.isInteger(pageEnd) ||
-        pageEnd < pageStart ||
-        pageEnd > 5000))
-  ) {
-    return null;
-  }
-
-  return { pageStart, pageEnd };
-}
-
-function getSaveStatusLabel(status: SaveStatus) {
-  switch (status) {
-    case "saving":
-      return "Saving page...";
-    case "account":
-      return "Account page saved.";
-    case "device":
-      return "Device page saved.";
-    case "invalid":
-      return "Use pages 1–5000; the end cannot precede the start.";
-    case "error":
-      return "Account save failed. Check the pages and try again.";
-    case "idle":
-      return "Large-print page reference.";
-  }
+  return "office-night";
 }

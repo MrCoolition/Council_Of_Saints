@@ -9,6 +9,7 @@
     "lint": "eslint",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
+    "office:validate": "tsx scripts/validate-office.ts",
     "scripture:import": "tsx scripts/import-scripture.ts"
   },
   "dependencies": {

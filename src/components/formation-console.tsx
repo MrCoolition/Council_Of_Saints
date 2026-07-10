@@ -10,6 +10,7 @@ import {
   Moon,
   ShieldCheck,
   Sun,
+  Sunset,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -78,6 +79,12 @@ const selectableItems: Array<{
     label: "Morning Prayer",
     detail: "First anchor",
     Icon: Sun,
+  },
+  {
+    value: "evening_prayer",
+    label: "Evening Prayer",
+    detail: "Return the day",
+    Icon: Sunset,
   },
   {
     value: "night_prayer",

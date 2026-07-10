@@ -18,7 +18,8 @@ import {
   getRecommendedMysterySet,
   MYSTERY_SETS,
 } from "@/lib/rosary";
-import { SCRIPTURE_BOOKS } from "@/lib/scripture";
+import { getScriptureHref, SCRIPTURE_BOOKS } from "@/lib/scripture";
+import { loadScriptureAnchor } from "@/server/scripture-passages";
 import { getTodayPayload } from "@/server/today";
 
 export const dynamic = "force-dynamic";
@@ -44,15 +45,15 @@ export default async function Home() {
   const morningGuide = today.officeGuides.find(
     (guide) => guide.hourType === "morning_prayer",
   );
-  const primaryAnchor =
-    today.officeGuides
-      .flatMap((guide) => guide.scriptureAnchors)
-      .find((anchor) => anchor.text) ?? morningGuide?.scriptureAnchors[0];
+  const primaryAnchor = morningGuide?.scriptureAnchors[0];
   const hasStarted = Object.keys(today.habitLog).length > 0;
+  const enabledGuides = today.officeGuides.filter((guide) =>
+    today.prayerRule.enabledItems.includes(guide.hourType),
+  );
   const nextGuide =
-    today.officeGuides.find(
+    enabledGuides.find(
       (guide) => today.habitLog[guide.hourType] !== "done",
-    ) ?? today.officeGuides.at(-1);
+    ) ?? enabledGuides.at(-1) ?? today.officeGuides.at(-1);
   const nextPrayer = nextGuide
     ? formatPrayerItem(nextGuide.hourType)
     : "today’s prayer";
@@ -213,16 +214,13 @@ export default async function Home() {
           localDate={today.localDate}
         />
 
-        <OfficeGuidePanels
-          guides={today.officeGuides}
-          localDate={today.localDate}
-        />
+        <OfficeGuidePanels guides={today.officeGuides} />
 
         <footer className="border-t border-stone-300 py-6 text-sm leading-6 text-stone-500">
           <p>
             Scripture source labels and licensing are shown wherever text is
-            presented. Office page references remain tied to your physical
-            edition.
+            presented. The Daily Psalter is stored locally with the app; no
+            physical-book page numbers are required.
           </p>
         </footer>
       </div>
@@ -230,11 +228,17 @@ export default async function Home() {
   );
 }
 
-function DailyScripture({ anchor }: { anchor?: ScriptureAnchor }) {
+async function DailyScripture({ anchor }: { anchor?: ScriptureAnchor }) {
+  const loadedAnchor = anchor ? await loadScriptureAnchor(anchor) : null;
+  const scriptureHref = anchor?.passages[0]
+    ? getScriptureHref(anchor.passages[0], "today")
+    : "/scripture";
+
   return (
     <section
       aria-labelledby="daily-scripture-heading"
       className="grid overflow-hidden rounded-2xl border border-stone-300/90 bg-[var(--panel)] shadow-[0_16px_42px_rgba(44,39,31,0.06)] lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]"
+      id="daily-scripture"
     >
       <div className="p-5 sm:p-8">
         <div className="flex items-center gap-2 text-[var(--accent)]">
@@ -247,23 +251,23 @@ function DailyScripture({ anchor }: { anchor?: ScriptureAnchor }) {
           className="mt-3 text-2xl font-semibold text-stone-950 sm:text-3xl"
           id="daily-scripture-heading"
         >
-          {anchor?.citation ?? "The appointed Word"}
+          {loadedAnchor?.citation ?? "The appointed Word"}
         </h2>
 
-        {anchor?.text ? (
+        {loadedAnchor?.text ? (
           <blockquote className="mt-5 max-w-3xl font-serif text-2xl leading-9 text-stone-900 sm:text-3xl sm:leading-10">
-            “{anchor.text}”
+            “{loadedAnchor.text}”
           </blockquote>
         ) : (
           <p className="mt-5 max-w-3xl font-serif text-xl leading-8 text-stone-800 sm:text-2xl">
-            {anchor?.reflection ??
+            {loadedAnchor?.reflection ??
               "Open the appointed passage and let Scripture give the first words."}
           </p>
         )}
 
-        {anchor?.sourceLabel ? (
+        {loadedAnchor?.sourceLabel ? (
           <p className="mt-4 text-xs font-semibold text-stone-500">
-            {anchor.sourceLabel}
+            {loadedAnchor.sourceLabel}
           </p>
         ) : null}
       </div>
@@ -280,9 +284,9 @@ function DailyScripture({ anchor }: { anchor?: ScriptureAnchor }) {
         </div>
         <Link
           className="inline-flex min-h-11 w-fit items-center gap-2 rounded-xl border border-stone-300 bg-white px-4 text-sm font-bold text-emerald-950 transition hover:border-emerald-900 hover:bg-emerald-50"
-          href="/scripture"
+          href={scriptureHref}
         >
-          Open Scripture reader
+          Open this passage
           <ArrowRight aria-hidden className="size-4" />
         </Link>
       </div>
