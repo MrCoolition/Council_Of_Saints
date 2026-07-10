@@ -1,29 +1,151 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f6f4ee;
+  color-scheme: light;
+  --background: #f3efe5;
   --foreground: #1c1a17;
   --panel: #fffdf7;
-  --panel-strong: #12372c;
-  --accent: #7f1d1d;
-  --gold: #b9852b;
-  --muted: #706a61;
+  --panel-soft: #f8f3e8;
+  --panel-strong: #073b2e;
+  --accent: #861f2d;
+  --gold: #b98228;
+  --muted: #6b655d;
+  --line: #d9d1c3;
+  --focus: #c48724;
+  --font-reading: "Iowan Old Style", "Palatino Linotype", "Book Antiqua",
+    Palatino, Georgia, serif;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+  --font-sans: "Avenir Next", Avenir, "Segoe UI", ui-sans-serif, system-ui,
+    sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua",
+    Palatino, Georgia, serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: "Geist", "Geist Fallback", Arial, Helvetica, sans-serif;
+  font-family: "Avenir Next", Avenir, "Segoe UI", ui-sans-serif, system-ui,
+    sans-serif;
+  font-feature-settings: "kern" 1, "liga" 1;
+}
+
+main {
+  background-image:
+    radial-gradient(circle at 8% 0%, rgb(185 130 40 / 0.055), transparent 26rem),
+    radial-gradient(circle at 92% 18%, rgb(7 59 46 / 0.04), transparent 30rem);
+}
+
+h1,
+h2,
+h3,
+.font-serif {
+  font-family: var(--font-reading);
+  font-kerning: normal;
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+button,
+input,
+select,
+textarea,
+summary,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+input,
+select,
+textarea,
+summary {
+  min-height: 2.75rem;
+}
+
+:where(a, button, input, select, textarea, summary):focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: fixed;
+  left: 1rem;
+  top: 0.75rem;
+  z-index: 100;
+  min-height: 2.75rem;
+  translate: 0 -200%;
+  border-radius: 0.75rem;
+  background: #fffdf7;
+  color: #073b2e;
+  padding: 0.7rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  box-shadow: 0 12px 30px rgb(28 26 23 / 0.18);
+  transition: translate 160ms ease;
+}
+
+.skip-link:focus {
+  translate: 0;
+}
+
+.oratory-header {
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.65);
+}
+
+.oratory-content:focus {
+  outline: none;
+}
+
+.mobile-oratory-nav {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.oratory-content {
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+}
+
+details > summary {
+  list-style: none;
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
 }
 
 ::selection {
   background: #d8b66c;
   color: #17130b;
+}
+
+@media (min-width: 48rem) {
+  .oratory-content {
+    padding-bottom: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

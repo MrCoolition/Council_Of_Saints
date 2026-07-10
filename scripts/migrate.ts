@@ -4,6 +4,7 @@ import process from "node:process";
 import { Client } from "pg";
 
 const connectionString =
+  process.env.DB_CONNECT ??
   process.env.DATABASE_URL_UNPOOLED ??
   process.env.POSTGRES_URL_NON_POOLING ??
   process.env.DATABASE_URL ??
@@ -12,7 +13,7 @@ const connectionString =
 
 if (!connectionString) {
   console.warn(
-    "Database connection string is not set. Skipping migrations.",
+    "DB_CONNECT (or a supported Postgres connection variable) is not set. Skipping migrations.",
   );
   process.exit(0);
 }

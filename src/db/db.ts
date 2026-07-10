@@ -48,6 +48,7 @@ export type SanctumPoolClient = PoolClient;
 
 function getConnectionString() {
   return (
+    process.env.DB_CONNECT ??
     process.env.DATABASE_URL ??
     process.env.POSTGRES_URL ??
     process.env.POSTGRES_PRISMA_URL

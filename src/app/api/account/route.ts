@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function DELETE(request: Request) {
   if (!hasDatabase()) {
-    return jsonError("DATABASE_URL is not configured.", 503);
+    return jsonError("DB_CONNECT is not configured.", 503);
   }
 
   const auth = resolveAuth(request);

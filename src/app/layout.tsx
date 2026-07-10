@@ -1,20 +1,14 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { SiteNavigation } from "@/components/site-navigation";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "Sanctum Council",
-  description: "Daily formation companion for prayer, fidelity, and study.",
+  title: {
+    default: "Sanctum Council",
+    template: "%s | Sanctum Council",
+  },
+  description:
+    "A digital oratory for Scripture, prayer, fidelity, and Catholic formation.",
 };
 
 export default function RootLayout({
@@ -23,11 +17,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full`}
-    >
-      <body className="flex min-h-full flex-col antialiased">{children}</body>
+    <html lang="en" className="h-full">
+      <body className="flex min-h-full flex-col antialiased">
+        <a className="skip-link" href="#main-content">
+          Skip to prayer content
+        </a>
+        <SiteNavigation />
+        <div
+          className="oratory-content min-w-0 flex-1"
+          id="main-content"
+          tabIndex={-1}
+        >
+          {children}
+        </div>
+      </body>
     </html>
   );
 }
