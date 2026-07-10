@@ -59,7 +59,7 @@ export default function RosaryPage() {
               <HeroNote
                 Icon={CircleDot}
                 label="Bead by bead"
-                value="Counters guide every repeated prayer."
+                value="A living 59-bead chaplet illuminates as you pray."
               />
               <HeroNote
                 Icon={ShieldCheck}

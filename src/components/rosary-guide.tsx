@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { RosaryBeads } from "@/components/rosary-beads";
 import {
   buildRosarySteps,
   FRUIT_GUIDANCE,
@@ -77,7 +78,13 @@ export function RosaryGuide() {
   const shouldFocusGuideRegionRef = useRef(false);
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
+    let cancelled = false;
+
+    window.queueMicrotask(() => {
+      if (cancelled) {
+        return;
+      }
+
       const today = new Date();
       const recommendedSet = getRecommendedMysterySet(today);
       const storedProgress = readStoredProgress();
@@ -102,9 +109,11 @@ export function RosaryGuide() {
       }
 
       setHydrated(true);
-    }, 0);
+    });
 
-    return () => window.clearTimeout(timeoutId);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -185,9 +194,25 @@ export function RosaryGuide() {
   }
 
   function advance() {
+    advanceProgress(true);
+  }
+
+  function advanceFromBead() {
+    const step = steps[progress.stepIndex] ?? steps[0];
+    const isFinishing =
+      progress.stepIndex >= steps.length - 1 &&
+      progress.repetition + 1 >= step.repeatTotal;
+
+    advanceProgress(isFinishing);
+  }
+
+  function advanceProgress(focusGuideOnStepChange: boolean) {
     const step = steps[progress.stepIndex] ?? steps[0];
 
-    if (progress.repetition + 1 >= step.repeatTotal) {
+    if (
+      focusGuideOnStepChange &&
+      progress.repetition + 1 >= step.repeatTotal
+    ) {
       shouldFocusGuideRegionRef.current = true;
     }
 
@@ -380,14 +405,17 @@ export function RosaryGuide() {
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(16rem,0.62fr)_minmax(0,1.38fr)]">
-        <MysteryOutline
-          activeMysteryIndex={
-            progress.finished ? null : (currentStep.mysteryIndex ?? null)
-          }
-          complete={progress.finished}
-          mysterySet={selectedSet}
-        />
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(21rem,0.84fr)_minmax(0,1.16fr)] xl:grid-cols-[minmax(23rem,0.78fr)_minmax(0,1.22fr)]">
+        <div className="order-1 lg:sticky lg:top-24 lg:self-start">
+          <RosaryBeads
+            finished={progress.finished}
+            mysterySet={selectedSet}
+            onAdvance={advanceFromBead}
+            progressPercent={progressPercent}
+            repetition={progress.repetition}
+            step={currentStep}
+          />
+        </div>
 
         <div
           aria-label={
@@ -395,7 +423,7 @@ export function RosaryGuide() {
               ? "Rosary complete"
               : `Rosary step: ${currentStep.title}`
           }
-          className="order-1 scroll-mt-24 outline-none lg:order-2"
+          className="order-2 scroll-mt-24 outline-none"
           ref={guideRegionRef}
           role="region"
           tabIndex={-1}
@@ -468,68 +496,6 @@ function MysterySetButton({
       </span>
       <span className="mt-1 block text-xs opacity-75">{mysterySet.days}</span>
     </button>
-  );
-}
-
-function MysteryOutline({
-  mysterySet,
-  activeMysteryIndex,
-  complete,
-}: {
-  mysterySet: RosaryMysterySet;
-  activeMysteryIndex: number | null;
-  complete: boolean;
-}) {
-  return (
-    <aside className="order-2 rounded-xl border border-[#12372c] bg-[#12372c] p-5 text-[#fff4d6] shadow-sm lg:order-1">
-      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#e5c778]">
-        Five mysteries
-      </p>
-      <h2 className="mt-2 text-xl font-semibold">{mysterySet.title}</h2>
-      <ol className="mt-5 space-y-2">
-        {mysterySet.mysteries.map((mystery, index) => {
-          const active = index === activeMysteryIndex;
-
-          return (
-            <li
-              aria-current={active ? "step" : undefined}
-              className={[
-                "grid grid-cols-[2rem_1fr] gap-3 rounded-lg border p-3 transition",
-                active
-                  ? "border-[#e5c778] bg-[#1b493a]"
-                  : "border-[#2c5a4b] bg-[#163f33]",
-              ].join(" ")}
-              key={mystery.id}
-            >
-              <span
-                className={[
-                  "flex size-8 items-center justify-center rounded-full text-xs font-bold",
-                  complete
-                    ? "bg-[#e5c778] text-[#12372c]"
-                    : active
-                      ? "bg-[#fff4d6] text-[#7f1d1d]"
-                      : "border border-[#6e8a7f] text-[#f7e8bd]",
-                ].join(" ")}
-              >
-                {complete ? <Check aria-hidden className="size-4" /> : index + 1}
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold leading-5">
-                  {mystery.title}
-                </span>
-                <span className="mt-1 block text-xs text-[#d9cda9]">
-                  {mystery.scripture}
-                </span>
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-      <p className="mt-5 border-t border-[#416a5c] pt-4 text-xs leading-5 text-[#d9cda9]">
-        The Rosary is Christ-centered contemplation with Mary. Scripture anchors
-        the scene; repetition makes room for attentive prayer.
-      </p>
-    </aside>
   );
 }
 

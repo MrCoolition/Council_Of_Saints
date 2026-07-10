@@ -129,6 +129,36 @@ details > summary::-webkit-details-marker {
   color: #17130b;
 }
 
+@keyframes rosary-bead-breathe {
+  0%,
+  100% {
+    opacity: 0.48;
+    scale: 0.88;
+  }
+
+  50% {
+    opacity: 1;
+    scale: 1.16;
+  }
+}
+
+.rosary-bead-halo {
+  animation: rosary-bead-breathe 2.4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.rosary-bead-current {
+  transition:
+    fill 260ms ease,
+    stroke 260ms ease,
+    filter 260ms ease;
+}
+
+.rosary-bead-touch {
+  touch-action: manipulation;
+}
+
 @media (min-width: 48rem) {
   .oratory-content {
     padding-bottom: 0;
