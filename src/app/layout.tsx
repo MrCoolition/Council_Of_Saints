@@ -17,7 +17,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full">
+    <html className="h-full" data-scroll-behavior="smooth" lang="en">
       <body className="flex min-h-full flex-col antialiased">
         <a className="skip-link" href="#main-content">
           Skip to prayer content

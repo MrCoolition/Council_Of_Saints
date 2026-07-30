@@ -27,7 +27,21 @@ const bookCache = new Map<string, Promise<ScriptureBookData>>();
 export async function loadScriptureAnchor(
   anchor: ScriptureAnchor,
 ): Promise<LoadedScriptureAnchor> {
-  const segments = await Promise.all(anchor.passages.map(loadScripturePassage));
+  const loadedSegments = await Promise.all(
+    anchor.passages.map(loadScripturePassage),
+  );
+  const segments = loadedSegments.map((segment, passageIndex) => ({
+    ...segment,
+    verses: segment.verses.map((verse) => {
+      const override = anchor.verseTextOverrides?.find(
+        (candidate) =>
+          candidate.passageIndex === passageIndex &&
+          candidate.verseNumber === verse.number,
+      );
+
+      return override ? { ...verse, text: override.text } : verse;
+    }),
+  }));
   const verses = segments.flatMap((segment) => segment.verses);
   const firstVerse =
     verses.find((verse) => !looksLikePsalmSuperscription(verse.text)) ??

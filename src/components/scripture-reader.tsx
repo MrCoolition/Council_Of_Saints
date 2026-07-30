@@ -97,6 +97,10 @@ export function ScriptureReader({
   const [bookmarks, setBookmarks] = useState<StoredBookmark[]>([]);
   const [textSize, setTextSize] =
     useState<TextSize>("comfortable");
+  const [showFullChapter, setShowFullChapter] = useState(
+    initialPassage?.verseStart === null ||
+      initialPassage?.verseStart === undefined,
+  );
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [storageReady, setStorageReady] = useState(false);
   const readerRef = useRef<HTMLElement>(null);
@@ -129,6 +133,12 @@ export function ScriptureReader({
     bookData !== null &&
     (!verses.some((verse) => verse.number === selectedRange.verseStart) ||
       !verses.some((verse) => verse.number === selectedRange.verseEnd));
+  const displayedVerses =
+    selectedRange?.verseStart !== null &&
+    selectedRange?.verseStart !== undefined &&
+    !showFullChapter
+      ? verses.filter((verse) => isVerseInPassage(verse.number, selectedRange))
+      : verses;
 
   const filteredBooks = useMemo(() => {
     const filter = bookFilter.trim().toLocaleLowerCase("en-US");
@@ -296,6 +306,7 @@ export function ScriptureReader({
     setLocation(nextLocation);
     setSelectedPassage(nextPassage);
     setPendingPassage(nextPassage);
+    setShowFullChapter(verseStart === null);
     setFailure(null);
     setReferenceFeedback(null);
     setCatalogOpen(false);
@@ -739,6 +750,45 @@ export function ScriptureReader({
           </div>
 
           <div className="min-h-[30rem] px-5 py-7 sm:px-8 sm:py-9 lg:px-10">
+            {selectedRange?.verseStart !== null &&
+            selectedRange?.verseStart !== undefined ? (
+              <section
+                aria-label="Focused passage controls"
+                className="mx-auto mb-6 flex max-w-3xl flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex items-start gap-3">
+                  <BookOpen
+                    aria-hidden
+                    className="mt-0.5 size-5 shrink-0 text-amber-900"
+                  />
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.13em] text-amber-900">
+                      {showFullChapter
+                        ? "Full chapter · requested verses highlighted"
+                        : "Focused passage"}
+                    </p>
+                    <p className="mt-1 font-serif text-lg font-semibold text-stone-950">
+                      {formatScriptureReference(
+                        selectedBook,
+                        location.chapter,
+                        selectedRange.verseStart,
+                        selectedRange.verseEnd,
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-amber-700 bg-white px-3 text-sm font-bold text-amber-950 transition hover:bg-amber-100"
+                  onClick={() => setShowFullChapter((current) => !current)}
+                  type="button"
+                >
+                  {showFullChapter
+                    ? "Return to focused passage"
+                    : "Show full chapter"}
+                </button>
+              </section>
+            ) : null}
+
             {currentFailure ? (
               <ReaderErrorState message={currentFailure} onRetry={retryLoad} />
             ) : !bookData ? (
@@ -765,7 +815,7 @@ export function ScriptureReader({
                   " ",
                 )}
               >
-                {verses.map((verse) => {
+                {displayedVerses.map((verse) => {
                   const selected = isVerseInPassage(verse.number, selectedRange);
 
                   return (

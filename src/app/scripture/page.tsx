@@ -26,10 +26,27 @@ const returnLinks: Record<
   ScriptureReturnSource,
   { href: string; label: string }
 > = {
-  today: { href: "/#daily-scripture", label: "Return to Today’s passage" },
+  today: { href: "/#mass-readings", label: "Return to Today’s readings" },
+  mass: { href: "/#mass-readings", label: "Return to Mass readings" },
+  "office-readings": {
+    href: "/#office-office_readings",
+    label: "Return to Office of Readings",
+  },
   "office-morning": {
     href: "/#office-morning_prayer",
     label: "Return to Morning Prayer",
+  },
+  "office-midmorning": {
+    href: "/#office-midmorning_prayer",
+    label: "Return to Midmorning Prayer",
+  },
+  "office-midday": {
+    href: "/#office-midday_prayer",
+    label: "Return to Midday Prayer",
+  },
+  "office-midafternoon": {
+    href: "/#office-midafternoon_prayer",
+    label: "Return to Midafternoon Prayer",
   },
   "office-evening": {
     href: "/#office-evening_prayer",

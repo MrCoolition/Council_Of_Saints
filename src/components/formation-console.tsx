@@ -75,10 +75,22 @@ const selectableItems: Array<{
   Icon: LucideIcon;
 }> = [
   {
+    value: "office_readings",
+    label: "Office of Readings",
+    detail: "The long watch",
+    Icon: BookOpen,
+  },
+  {
     value: "morning_prayer",
     label: "Morning Prayer",
     detail: "First anchor",
     Icon: Sun,
+  },
+  {
+    value: "daytime_prayer",
+    label: "Daytime Prayer",
+    detail: "Terce · Sext · None",
+    Icon: Clock3,
   },
   {
     value: "evening_prayer",

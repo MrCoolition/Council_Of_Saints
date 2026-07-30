@@ -1,10 +1,23 @@
 import type { PrayerItemType } from "@/lib/domain";
+import {
+  getComplementaryPsalmody,
+  getDaytimePsalmody,
+  getOfficeOfReadingsPsalmody,
+  type PsalmSchedule,
+} from "@/lib/office-schedules";
 import type { ScripturePassage } from "@/lib/scripture";
 
-export type OfficeHourType = Extract<
-  PrayerItemType,
-  "morning_prayer" | "evening_prayer" | "night_prayer"
->;
+export const OFFICE_HOUR_TYPES = [
+  "office_readings",
+  "morning_prayer",
+  "midmorning_prayer",
+  "midday_prayer",
+  "midafternoon_prayer",
+  "evening_prayer",
+  "night_prayer",
+] as const;
+
+export type OfficeHourType = (typeof OFFICE_HOUR_TYPES)[number];
 
 export type ScriptureAnchor = {
   title: string;
@@ -15,16 +28,51 @@ export type ScriptureAnchor = {
   source: "public_domain";
   sourceLabel: string;
   reflection: string;
+  verseTextOverrides?: {
+    passageIndex: number;
+    verseNumber: number;
+    text: string;
+  }[];
 };
 
 export type OfficeGuide = {
   hourType: OfficeHourType;
+  prayerItemType?: Extract<
+    PrayerItemType,
+    | "office_readings"
+    | "morning_prayer"
+    | "daytime_prayer"
+    | "evening_prayer"
+    | "night_prayer"
+  >;
+  hourLabel?: string;
+  traditionalName?: string;
+  suggestedTime?: string;
   psalterWeek: number;
   cycleLabel: string;
   generalNote: string;
   openingLines: string[];
   scriptureAnchors: ScriptureAnchor[];
+  alternatePsalmody?: {
+    title: string;
+    instruction: string;
+    scriptureAnchors: ScriptureAnchor[];
+  };
+  rubricNotes?: string[];
+  properNotice?: {
+    title: string;
+    description: string;
+    href: string;
+    statusLabel: string;
+  } | null;
   closingSteps: { title: string; instruction: string }[];
+};
+
+export type OfficeContext = {
+  title?: string;
+  season?: string;
+  rank?: string;
+  color?: string;
 };
 
 type Weekday =
@@ -69,10 +117,13 @@ const MORNING_PSALTER: PsalterPlan = {
     ],
     wednesday: [
       psalm("Psalm 36", 35),
-      canticle("Canticle of Judith · Judith 16:2–4, 15–19", [
-        passage("judith", 16, 2, 4),
-        passage("judith", 16, 15, 19),
-      ]),
+      canticle(
+        "Canticle of Judith · Judith 16:2–3a, 13–15 · Douay 16:2–4, 15–19",
+        [
+          passage("judith", 16, 2, 4),
+          passage("judith", 16, 15, 19),
+        ],
+      ),
       psalm("Psalm 47", 46),
     ],
     thursday: [
@@ -637,6 +688,7 @@ const EVENING_BRIEF_READINGS: Record<
 export function getDailyOfficeGuides(
   localDate: string,
   psalterWeek: number,
+  context: OfficeContext = {},
 ): OfficeGuide[] {
   const weekday = getWeekday(localDate);
   const normalizedWeek = normalizePsalterWeek(psalterWeek);
@@ -645,27 +697,114 @@ export function getDailyOfficeGuides(
   const eveningDay = weekday === "saturday" ? "saturday" : weekday;
   const morningBrief = MORNING_BRIEF_READINGS[normalizedWeek][weekday];
   const eveningBrief = EVENING_BRIEF_READINGS[eveningWeek][eveningDay];
+  const season = context.season ?? "Ordinary Time";
+  const memorialOfMarthaMaryLazarus = localDate.endsWith("-07-29");
+  const properNotice = memorialOfMarthaMaryLazarus
+    ? {
+        title: "Current U.S. proper for Saints Martha, Mary, and Lazarus",
+        description:
+          "The proper hymn, Saint Bernard reading, responsory, Gospel-canticle antiphons, and collect were confirmed in English in 2024. Open the official USCCB text below; Sanctum Council does not relabel an older or invented text as the approved proper.",
+        href: "https://www.usccb.org/prayer-worship/liturgical-year/saints-martha-mary-and-lazarus",
+        statusLabel: "Official proper · linked",
+      }
+    : null;
+  const officeReadingPsalmody = getOfficeOfReadingsPsalmody(
+    normalizedWeek,
+    weekday,
+    season,
+  ).map(schedulePsalm);
+  const currentDaytimePsalmody = getDaytimePsalmody(
+    normalizedWeek,
+    weekday,
+  ).map(schedulePsalm);
+  const officeLongReadings = getOfficeLongReadings(localDate);
+  const daytimeReadings = getDaytimeReadings(localDate);
 
   return [
     {
+      hourType: "office_readings",
+      prayerItemType: "office_readings",
+      hourLabel: "Office of Readings",
+      traditionalName: "Vigils / Matins",
+      suggestedTime: "Any hour · traditionally before dawn",
+      psalterWeek: normalizedWeek,
+      cycleLabel: `Four-week Psalter · Week ${toRomanNumeral(normalizedWeek)}`,
+      generalNote:
+        "A longer watch with three psalms and the day’s biblical reading. The current saint’s spiritual reading is linked from the approved U.S. proper.",
+      openingLines: [
+        "If this is your first Hour, say: O Lord, open thou my lips. And my mouth shall shew forth thy praise. Then use the optional Invitatory below.",
+        "If another Hour already opened the day, say: O God, come to my assistance. O Lord, make haste to help me.",
+      ],
+      scriptureAnchors: [
+        invitatoryPsalm(),
+        ...officeReadingPsalmody,
+        ...officeLongReadings,
+      ],
+      rubricNotes: memorialOfMarthaMaryLazarus
+        ? [
+            "Memorial rule: weekday psalmody and first biblical reading remain.",
+            "Use the proper Saint Bernard second reading and responsory from the current U.S. proper.",
+            "The Te Deum is not said on this memorial.",
+          ]
+        : [
+            "The Office of Readings includes a second, non-biblical reading after the first responsory.",
+            "Seasonal psalm substitutions are applied for the four affected Psalter days.",
+          ],
+      properNotice,
+      closingSteps: [
+        {
+          title: "Keep silence",
+          instruction:
+            "Let the biblical reading and the witness of the Church meet before you answer.",
+        },
+        {
+          title: "Respond",
+          instruction:
+            "Offer the day’s work of study, repentance, service, and contemplation to God.",
+        },
+      ],
+    },
+    {
       hourType: "morning_prayer",
+      prayerItemType: "morning_prayer",
+      hourLabel: "Morning Prayer",
+      traditionalName: "Lauds",
+      suggestedTime: "At dawn",
       psalterWeek: normalizedWeek,
       cycleLabel: `Four-week Psalter · Week ${toRomanNumeral(normalizedWeek)}`,
       generalNote:
         "Receive the morning from God: pray the appointed psalm, Old Testament canticle, psalm of praise, and the Benedictus in order.",
       openingLines: [
-        "Make the Sign of the Cross and become still.",
-        "O Lord, open thou my lips. And my mouth shall shew forth thy praise.",
+        "If this is your first Hour, say: O Lord, open thou my lips. And my mouth shall shew forth thy praise. Then use the optional Invitatory below.",
+        "Otherwise say: O God, come to my assistance. O Lord, make haste to help me.",
       ],
       scriptureAnchors: [
+        invitatoryPsalm(),
         ...MORNING_PSALTER[normalizedWeek][weekday],
-        morningBrief,
+        ...(memorialOfMarthaMaryLazarus
+          ? [
+              shortReading("Romans 12:1–2", [
+                passage("romans", 12, 1, 2),
+              ]),
+            ]
+          : [morningBrief]),
         gospelCanticle(
           "Benedictus · Canticle of Zechariah",
           "Luke 1:68–79",
           passage("luke", 1, 68, 79),
         ),
       ],
+      rubricNotes: memorialOfMarthaMaryLazarus
+        ? [
+            "Week I Wednesday psalmody remains: Psalm 36, Judith 16, and Psalm 47.",
+            "The Common of Holy Men supplies the built-in short reading, Romans 12:1–2; use its approved responsory and intercessions from the current liturgical text.",
+            "Use the proper 2024 hymn, Benedictus antiphon, and collect from the linked U.S. proper.",
+          ]
+        : [
+            "The Benedictus follows the brief reading and responsory.",
+            "On celebrations, consult the current proper and common for replacements.",
+          ],
+      properNotice,
       closingSteps: [
         {
           title: "Intercede",
@@ -680,8 +819,77 @@ export function getDailyOfficeGuides(
         },
       ],
     },
+    makeDaytimeGuide({
+      hourType: "midmorning_prayer",
+      hourLabel: "Midmorning Prayer",
+      traditionalName: "Terce",
+      suggestedTime: "About 9:00 AM",
+      cycleLabel: "Complementary Psalmody · Series I",
+      generalNote:
+        "Sanctify the work already begun. Because the current four-week psalmody is placed at Midday, Terce uses its complementary psalms.",
+      psalmody: getComplementaryPsalmody("midmorning_prayer").map(
+        schedulePsalm,
+      ),
+      readings: daytimeReadings.midmorning_prayer ?? [],
+      alternatePsalmody: {
+        title: "Praying Terce as your only Daytime Hour?",
+        instruction: `Use this current Week ${toRomanNumeral(normalizedWeek)} psalmody instead of Psalms 120–122.`,
+        scriptureAnchors: currentDaytimePsalmody,
+      },
+      normalizedWeek,
+      firstRubric:
+        "If you pray only one Daytime Hour, you may use the current four-week psalmody here instead.",
+      closingTitle: "Consecrate",
+      closingInstruction:
+        "Offer the next work, meeting, duty, or interruption to the Holy Spirit.",
+    }),
+    makeDaytimeGuide({
+      hourType: "midday_prayer",
+      hourLabel: "Midday Prayer",
+      traditionalName: "Sext",
+      suggestedTime: "About noon",
+      cycleLabel: `Current Daytime Psalmody · Week ${toRomanNumeral(normalizedWeek)}`,
+      generalNote:
+        "Stand in the middle of the day before God. This is the selected Hour for today’s current four-week psalmody.",
+      psalmody: currentDaytimePsalmody,
+      readings: daytimeReadings.midday_prayer ?? [],
+      normalizedWeek,
+      firstRubric:
+        "One Daytime Hour is sufficient outside choir; Terce, Sext, or None may be chosen.",
+      closingTitle: "Return",
+      closingInstruction:
+        "Ask for a recollected heart through the labor and decisions of the afternoon.",
+    }),
+    makeDaytimeGuide({
+      hourType: "midafternoon_prayer",
+      hourLabel: "Midafternoon Prayer",
+      traditionalName: "None",
+      suggestedTime: "About 3:00 PM",
+      cycleLabel: "Complementary Psalmody · Series III",
+      generalNote:
+        "Meet fatigue, unfinished work, and the memory of Christ’s Passion with prayer rather than drift.",
+      psalmody: getComplementaryPsalmody("midafternoon_prayer").map(
+        schedulePsalm,
+      ),
+      readings: daytimeReadings.midafternoon_prayer ?? [],
+      alternatePsalmody: {
+        title: "Praying None as your only Daytime Hour?",
+        instruction: `Use this current Week ${toRomanNumeral(normalizedWeek)} psalmody instead of Psalms 126–128.`,
+        scriptureAnchors: currentDaytimePsalmody,
+      },
+      normalizedWeek,
+      firstRubric:
+        "If this is the only Daytime Hour you pray, use the current four-week psalmody instead of complementary Series III.",
+      closingTitle: "Persevere",
+      closingInstruction:
+        "Entrust the unfinished, the difficult, and the people encountered today to Christ.",
+    }),
     {
       hourType: "evening_prayer",
+      prayerItemType: "evening_prayer",
+      hourLabel: "Evening Prayer",
+      traditionalName: "Vespers",
+      suggestedTime: "At evening",
       psalterWeek: eveningWeek,
       cycleLabel:
         weekday === "saturday"
@@ -695,13 +903,30 @@ export function getDailyOfficeGuides(
       ],
       scriptureAnchors: [
         ...EVENING_PSALTER[eveningWeek][eveningDay],
-        eveningBrief,
+        ...(memorialOfMarthaMaryLazarus
+          ? [
+              shortReading("Romans 8:28–30", [
+                passage("romans", 8, 28, 30),
+              ]),
+            ]
+          : [eveningBrief]),
         gospelCanticle(
           "Magnificat · Canticle of Mary",
           "Luke 1:46–55",
           passage("luke", 1, 46, 55),
         ),
       ],
+      rubricNotes: memorialOfMarthaMaryLazarus
+        ? [
+            "Week I Wednesday psalmody remains: Psalm 27 in two sections and Colossians 1:12–20.",
+            "The Common of Holy Men supplies the built-in short reading, Romans 8:28–30; use its approved responsory and intercessions from the current liturgical text.",
+            "Use the proper hymn, Magnificat antiphon, and collect from the linked U.S. proper.",
+          ]
+        : [
+            "The Magnificat follows the brief reading and responsory.",
+            "Saturday Evening Prayer is Evening Prayer I of Sunday.",
+          ],
+      properNotice,
       closingSteps: [
         {
           title: "Give thanks",
@@ -717,6 +942,10 @@ export function getDailyOfficeGuides(
     },
     {
       hourType: "night_prayer",
+      prayerItemType: "night_prayer",
+      hourLabel: "Night Prayer",
+      traditionalName: "Compline",
+      suggestedTime: "Before sleep",
       psalterWeek: normalizedWeek,
       cycleLabel: "One-week Night Prayer cycle",
       generalNote:
@@ -733,6 +962,11 @@ export function getDailyOfficeGuides(
           passage("luke", 2, 29, 32),
         ),
       ],
+      rubricNotes: [
+        "Night Prayer follows its own one-week cycle and is not replaced by the memorial.",
+        "After the blessing, conclude with a permitted Marian antiphon.",
+      ],
+      properNotice: null,
       closingSteps: [
         {
           title: "Surrender",
@@ -747,6 +981,161 @@ export function getDailyOfficeGuides(
       ],
     },
   ];
+}
+
+function makeDaytimeGuide({
+  hourType,
+  hourLabel,
+  traditionalName,
+  suggestedTime,
+  cycleLabel,
+  generalNote,
+  psalmody,
+  readings,
+  alternatePsalmody,
+  normalizedWeek,
+  firstRubric,
+  closingTitle,
+  closingInstruction,
+}: {
+  hourType: Extract<
+    OfficeHourType,
+    "midmorning_prayer" | "midday_prayer" | "midafternoon_prayer"
+  >;
+  hourLabel: string;
+  traditionalName: string;
+  suggestedTime: string;
+  cycleLabel: string;
+  generalNote: string;
+  psalmody: ScriptureAnchor[];
+  readings: ScriptureAnchor[];
+  alternatePsalmody?: OfficeGuide["alternatePsalmody"];
+  normalizedWeek: number;
+  firstRubric: string;
+  closingTitle: string;
+  closingInstruction: string;
+}): OfficeGuide {
+  return {
+    hourType,
+    prayerItemType: "daytime_prayer",
+    hourLabel,
+    traditionalName,
+    suggestedTime,
+    psalterWeek: normalizedWeek,
+    cycleLabel,
+    generalNote,
+    openingLines: [
+      "Pause the work in your hands and remember whose work it is.",
+      "O God, come to my assistance. O Lord, make haste to help me.",
+    ],
+    scriptureAnchors: [...psalmody, ...readings],
+    alternatePsalmody,
+    rubricNotes: [
+      firstRubric,
+      "When all three Daytime Hours are prayed, the current psalmody is used once and complementary psalmody at the other two.",
+    ],
+    properNotice: null,
+    closingSteps: [
+      {
+        title: closingTitle,
+        instruction: closingInstruction,
+      },
+    ],
+  };
+}
+
+function schedulePsalm(schedule: PsalmSchedule) {
+  const verseTextOverrides =
+    schedule.displayCitation === "Psalm 17:1–9a"
+      ? [
+          {
+            passageIndex: 0,
+            verseNumber: 9,
+            text: "from the face of the impious, that have afflicted me.",
+          },
+        ]
+      : schedule.displayCitation === "Psalm 17:9b–15"
+        ? [
+            {
+              passageIndex: 0,
+              verseNumber: 9,
+              text: "Mine enemies have compassed my soul,",
+            },
+          ]
+        : undefined;
+  const rendered = psalm(
+    schedule.displayCitation,
+    schedule.douayChapter,
+    schedule.douayRanges,
+    verseTextOverrides,
+  );
+
+  return schedule.containsHalfVerse
+    ? {
+        ...rendered,
+        sourceLabel: verseTextOverrides
+          ? `${SOURCE_LABEL} · half-verse boundary divided at the Douay sentence break`
+          : `${SOURCE_LABEL} · complete boundary verse shown where the liturgical citation specifies a half-verse`,
+      }
+    : rendered;
+}
+
+function getOfficeLongReadings(localDate: string): ScriptureAnchor[] {
+  if (localDate === "2026-07-29") {
+    return [
+      anchor(
+        "First reading",
+        "2 Corinthians 10:1–11:6",
+        "Office of Readings · biblical reading",
+        [
+          passage("2-corinthians", 10, 1, 18),
+          passage("2-corinthians", 11, 1, 6),
+        ],
+        "Read the whole passage slowly. Keep silence before opening the proper spiritual reading.",
+      ),
+    ];
+  }
+
+  return [];
+}
+
+function getDaytimeReadings(localDate: string): Partial<
+  Record<
+    "midmorning_prayer" | "midday_prayer" | "midafternoon_prayer",
+    ScriptureAnchor[]
+  >
+> {
+  if (localDate !== "2026-07-29") {
+    return {};
+  }
+
+  return {
+    midmorning_prayer: [
+      shortReading("1 Peter 1:13–14", [passage("1-peter", 1, 13, 14)]),
+    ],
+    midday_prayer: [
+      shortReading("1 Peter 1:15–16", [passage("1-peter", 1, 15, 16)]),
+    ],
+    midafternoon_prayer: [
+      {
+        ...shortReading(
+          "James 4:7–8a, 10",
+          [
+            passage("james", 4, 7, 8),
+            passage("james", 4, 10, 10),
+          ],
+          [
+            {
+              passageIndex: 0,
+              verseNumber: 8,
+              text: "Approach to God, & he will approach to you.",
+            },
+          ],
+        ),
+        sourceLabel: `${SOURCE_LABEL} · verse 8a ends at the first Douay sentence`,
+      },
+    ],
+  };
 }
 
 function eveningWeek(
@@ -815,6 +1204,7 @@ function psalm(
   displayCitation: string,
   douayChapter: number,
   ranges: [number, number][] = [],
+  verseTextOverrides?: ScriptureAnchor["verseTextOverrides"],
 ): ScriptureAnchor {
   const passages =
     ranges.length === 0
@@ -827,6 +1217,7 @@ function psalm(
     "Appointed psalmody",
     passages,
     "Pray the words aloud or under your breath; do not hurry the line that resists you.",
+    verseTextOverrides,
   );
 }
 
@@ -840,13 +1231,18 @@ function canticle(citation: string, passages: ScripturePassage[]) {
   );
 }
 
-function shortReading(citation: string, passages: ScripturePassage[]) {
+function shortReading(
+  citation: string,
+  passages: ScripturePassage[],
+  verseTextOverrides?: ScriptureAnchor["verseTextOverrides"],
+) {
   return anchor(
     "Brief reading",
     citation,
     "Scripture reading",
     passages,
     "Keep one sentence with you in silence before continuing.",
+    verseTextOverrides,
   );
 }
 
@@ -864,12 +1260,23 @@ function gospelCanticle(
   );
 }
 
+function invitatoryPsalm() {
+  return anchor(
+    "Optional Invitatory",
+    "Psalm 95 · Douay Psalm 94",
+    "Use only when this is the first Hour of the day",
+    [passage("psalms", 94)],
+    "Repeat the approved invitatory antiphon before and between the stanzas if you have it; otherwise pray the psalm attentively as a public-domain devotional opening.",
+  );
+}
+
 function anchor(
   title: string,
   citation: string,
   role: string,
   passages: ScripturePassage[],
   reflection: string,
+  verseTextOverrides?: ScriptureAnchor["verseTextOverrides"],
 ): ScriptureAnchor {
   return {
     title,
@@ -880,6 +1287,7 @@ function anchor(
     source: "public_domain",
     sourceLabel: SOURCE_LABEL,
     reflection,
+    verseTextOverrides,
   };
 }
 

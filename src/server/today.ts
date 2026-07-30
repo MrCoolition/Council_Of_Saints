@@ -1,23 +1,15 @@
-import { hasDatabase, query } from "@/db/db";
+import { hasDatabase } from "@/db/db";
 import { withUserTransaction } from "@/db/user-transaction";
 import { getLocalIsoDate } from "@/lib/dates";
 import type { HabitStatus, PrayerItemType } from "@/lib/domain";
 import { getDemoTodayPayload, type TodayPayload } from "@/lib/demo-data";
+import { getLiturgicalDay } from "@/lib/liturgical-calendar";
 import { getDailyOfficeGuides } from "@/lib/office-psalter";
 import { ensureAppUser } from "@/server/app-user";
 import { resolveAuth, resolveAuthFromHeaders } from "@/server/auth";
 
-type LiturgicalDayRow = {
-  title: string;
-  season: string;
-  week_of_season: number;
-  psalter_week: number;
-  rank: string;
-  color: string | null;
-};
-
 export async function getTodayPayload(request?: Request): Promise<TodayPayload> {
-  const fallback = getDemoTodayPayload();
+  const fallback = await getCalendarBackedPayload(getLocalIsoDate(), "US");
 
   if (!hasDatabase()) {
     return fallback;
@@ -26,28 +18,10 @@ export async function getTodayPayload(request?: Request): Promise<TodayPayload> 
   const auth = request ? resolveAuth(request) : resolveAuthFromHeaders();
   const user = await ensureAppUser(auth.authSubject, auth.displayName);
   const localDate = getLocalIsoDate(user.timezone);
-  const dateFallback = getDemoTodayPayload(localDate);
-
-  const dayResult = await query<LiturgicalDayRow>(
-    `
-      select
-        title,
-        season,
-        week_of_season,
-        psalter_week,
-        rank,
-        color
-      from liturgical_day
-      where local_date = $1
-        and country = $2
-        and (diocese is not distinct from $3 or diocese is null)
-      order by (diocese is null) asc
-      limit 1
-    `,
-    [localDate, user.country, user.diocese],
+  const dateFallback = await getCalendarBackedPayload(
+    localDate,
+    user.country,
   );
-
-  const liturgicalDay = dayResult.rows[0];
 
   const userState = await withUserTransaction(user.id, async (client) => {
     const rule = await client.query<{
@@ -76,7 +50,9 @@ export async function getTodayPayload(request?: Request): Promise<TodayPayload> 
             values (
               $1,
               array[
+                'office_readings',
                 'morning_prayer',
+                'daytime_prayer',
                 'evening_prayer',
                 'night_prayer'
               ]::prayer_item_type[]
@@ -118,16 +94,10 @@ export async function getTodayPayload(request?: Request): Promise<TodayPayload> 
       habitHistory,
     };
   });
-  const resolvedLiturgicalDay = liturgicalDay
-    ? {
-        title: liturgicalDay.title,
-        season: liturgicalDay.season,
-        weekOfSeason: liturgicalDay.week_of_season,
-        psalterWeek: liturgicalDay.psalter_week,
-        rank: liturgicalDay.rank,
-        color: liturgicalDay.color ?? "Green",
-      }
-    : dateFallback.liturgicalDay;
+  // Calendar metadata is calculated from the bundled, versioned U.S. Roman
+  // calendar. Neon stores personal state, but an old seed/cache row must never
+  // replace the current observance or Psalter week.
+  const resolvedLiturgicalDay = dateFallback.liturgicalDay;
 
   return {
     ...dateFallback,
@@ -149,6 +119,44 @@ export async function getTodayPayload(request?: Request): Promise<TodayPayload> 
     officeGuides: getDailyOfficeGuides(
       localDate,
       resolvedLiturgicalDay.psalterWeek,
+      resolvedLiturgicalDay,
     ),
   };
+}
+
+async function getCalendarBackedPayload(
+  localDate: string,
+  country: string,
+): Promise<TodayPayload> {
+  const fallback = getDemoTodayPayload(localDate);
+
+  try {
+    const day = await getLiturgicalDay(localDate, country);
+    const liturgicalDay: TodayPayload["liturgicalDay"] = {
+      title: day.title,
+      season: day.season,
+      weekOfSeason: day.weekOfSeason,
+      psalterWeek: day.psalterWeek,
+      rank: day.rank,
+      color: day.color,
+      observanceId: day.observanceId,
+      weekdayCycle: day.cycles.weekday.label,
+      sundayCycle: day.cycles.sunday.label,
+      sourceLabel: day.source.label,
+      sourceUrl: day.source.urls.authority,
+    };
+
+    return {
+      ...fallback,
+      liturgicalDay,
+      officeGuides: getDailyOfficeGuides(
+        localDate,
+        liturgicalDay.psalterWeek,
+        liturgicalDay,
+      ),
+    };
+  } catch (error) {
+    console.error("Falling back to local liturgical estimate.", error);
+    return fallback;
+  }
 }

@@ -9,6 +9,10 @@ import {
   getDailyOfficeGuides,
   type OfficeGuide,
 } from "@/lib/office-psalter";
+import {
+  getUsMassReadingsForDate,
+  type MassReadingsEntry,
+} from "@/lib/mass-readings";
 
 export type { OfficeGuide, ScriptureAnchor } from "@/lib/office-psalter";
 
@@ -24,6 +28,11 @@ export type TodayPayload = {
     psalterWeek: number;
     rank: string;
     color: string;
+    observanceId?: string;
+    weekdayCycle?: string;
+    sundayCycle?: string;
+    sourceLabel?: string;
+    sourceUrl?: string;
   };
   profile: {
     displayName: string;
@@ -44,11 +53,30 @@ export type TodayPayload = {
   habitLog: Partial<Record<PrayerItemType, HabitStatus>>;
   habitHistory: Record<string, Partial<Record<PrayerItemType, HabitStatus>>>;
   officeGuides: OfficeGuide[];
+  massReadings: MassReadingsEntry;
   councilPrompt: CouncilPrompt;
 };
 
 const ordinaryTimeAnchor = new Date("2026-07-05T12:00:00");
 const ordinaryTimeAnchorWeek = 14;
+const verifiedCalendarFixtures: Record<
+  string,
+  TodayPayload["liturgicalDay"]
+> = {
+  "2026-07-29": {
+    title: "Saints Martha, Mary and Lazarus",
+    season: "Ordinary Time",
+    weekOfSeason: 17,
+    psalterWeek: 1,
+    rank: "Obligatory Memorial",
+    color: "White",
+    observanceId: "saints_martha_mary_and_lazarus",
+    weekdayCycle: "Weekday Cycle II",
+    sundayCycle: "Sunday Cycle A",
+    sourceLabel: "Verified 2026 U.S. liturgical calendar fixture",
+    sourceUrl: "https://www.usccb.org/resources/2026cal.pdf",
+  },
+};
 const ordinalNames = [
   "",
   "First",
@@ -104,13 +132,15 @@ export function getDemoTodayPayload(localDate = getLocalIsoDate()): TodayPayload
       formationStage: "lay_discernment",
     },
     breviary: {
-      editionId: "scripture-psalter",
-      title: "Daily Scripture Psalter",
-      currentVolume: "Scripture Psalter",
+      editionId: "sanctum-hours",
+      title: "Sanctum Hours",
+      currentVolume: "Complete daily hours",
     },
     prayerRule: {
       enabledItems: [
+        "office_readings",
         "morning_prayer",
+        "daytime_prayer",
         "evening_prayer",
         "night_prayer",
       ],
@@ -118,7 +148,13 @@ export function getDemoTodayPayload(localDate = getLocalIsoDate()): TodayPayload
     },
     habitLog: {},
     habitHistory: {},
-    officeGuides: getDailyOfficeGuides(localDate, liturgicalDay.psalterWeek),
+    officeGuides: getDailyOfficeGuides(localDate, liturgicalDay.psalterWeek, {
+      title: liturgicalDay.title,
+      season: liturgicalDay.season,
+      rank: liturgicalDay.rank,
+      color: liturgicalDay.color,
+    }),
+    massReadings: getUsMassReadingsForDate(localDate),
     councilPrompt: getCouncilPrompt("morning", "missed_prayer"),
   };
 }
@@ -140,6 +176,12 @@ export function getDemoCalendarMonth(year: number, month: number) {
 }
 
 function getDemoLiturgicalDay(localDate: string): TodayPayload["liturgicalDay"] {
+  const verifiedFixture = verifiedCalendarFixtures[localDate];
+
+  if (verifiedFixture) {
+    return verifiedFixture;
+  }
+
   const date = new Date(`${localDate}T12:00:00`);
   const daysSinceAnchor = Math.round(
     (date.getTime() - ordinaryTimeAnchor.getTime()) / 86_400_000,

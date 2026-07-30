@@ -13,12 +13,14 @@
     "scripture:import": "tsx scripts/import-scripture.ts"
   },
   "dependencies": {
+    "@romcal/calendar.united-states": "^3.0.0-dev.125",
     "@vercel/functions": "^3.7.5",
     "lucide-react": "^1.23.0",
     "next": "16.2.10",
     "pg": "^8.22.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "romcal": "^3.0.0-dev.125"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

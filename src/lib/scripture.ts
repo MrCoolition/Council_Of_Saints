@@ -30,7 +30,12 @@ export type ScripturePassage = ScriptureLocation & {
 
 export type ScriptureReturnSource =
   | "today"
+  | "mass"
+  | "office-readings"
   | "office-morning"
+  | "office-midmorning"
+  | "office-midday"
+  | "office-midafternoon"
   | "office-evening"
   | "office-night";
 
@@ -545,7 +550,12 @@ export function parseScriptureReturnSource(
   const source = Array.isArray(rawSource) ? rawSource[0] : rawSource;
 
   return source === "today" ||
+    source === "mass" ||
+    source === "office-readings" ||
     source === "office-morning" ||
+    source === "office-midmorning" ||
+    source === "office-midday" ||
+    source === "office-midafternoon" ||
     source === "office-evening" ||
     source === "office-night"
     ? source

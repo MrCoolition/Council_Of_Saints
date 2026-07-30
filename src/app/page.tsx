@@ -5,21 +5,19 @@ import {
   CircleDot,
   Flame,
   Library,
-  ScrollText,
   type LucideIcon,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { FormationConsole } from "@/components/formation-console";
+import { MassReadingsPanel } from "@/components/mass-readings-panel";
 import { OfficeGuidePanels } from "@/components/office-guide-panels";
-import type { ScriptureAnchor } from "@/lib/demo-data";
 import { formatPrayerItem } from "@/lib/domain";
 import {
   getRecommendedMysterySet,
   MYSTERY_SETS,
 } from "@/lib/rosary";
-import { getScriptureHref, SCRIPTURE_BOOKS } from "@/lib/scripture";
-import { loadScriptureAnchor } from "@/server/scripture-passages";
+import { SCRIPTURE_BOOKS } from "@/lib/scripture";
 import { getTodayPayload } from "@/server/today";
 
 export const dynamic = "force-dynamic";
@@ -42,21 +40,26 @@ export default async function Home() {
     currentDate,
     today.liturgicalDay.season,
   );
-  const morningGuide = today.officeGuides.find(
-    (guide) => guide.hourType === "morning_prayer",
-  );
-  const primaryAnchor = morningGuide?.scriptureAnchors[0];
+  const primaryMassCitation =
+    today.massReadings.status === "curated"
+      ? today.massReadings.options[0].firstReading.displayCitation
+      : "Official USCCB readings";
   const hasStarted = Object.keys(today.habitLog).length > 0;
   const enabledGuides = today.officeGuides.filter((guide) =>
-    today.prayerRule.enabledItems.includes(guide.hourType),
+    today.prayerRule.enabledItems.includes(
+      guide.prayerItemType ?? "morning_prayer",
+    ),
   );
   const nextGuide =
     enabledGuides.find(
-      (guide) => today.habitLog[guide.hourType] !== "done",
+      (guide) =>
+        today.habitLog[guide.prayerItemType ?? "morning_prayer"] !== "done",
     ) ?? enabledGuides.at(-1) ?? today.officeGuides.at(-1);
-  const nextPrayer = nextGuide
-    ? formatPrayerItem(nextGuide.hourType)
-    : "today’s prayer";
+  const nextPrayer =
+    nextGuide?.hourLabel ??
+    (nextGuide?.prayerItemType
+      ? formatPrayerItem(nextGuide.prayerItemType)
+      : "today’s prayer");
   const prayerAction =
     today.mode === "demo" ? "Open" : hasStarted ? "Continue" : "Begin";
 
@@ -93,9 +96,7 @@ export default async function Home() {
             </div>
 
             <p className="mt-5 text-xs font-bold uppercase tracking-[0.18em] text-amber-200">
-              {today.mode === "demo"
-                ? "Local calendar estimate"
-                : "Today in the Church"}
+              {today.liturgicalDay.rank} · Today in the U.S. Church calendar
             </p>
             <h1
               className="mt-2 max-w-2xl text-3xl font-semibold leading-[1.06] text-amber-50 sm:text-5xl lg:text-6xl"
@@ -120,10 +121,27 @@ export default async function Home() {
                 {today.liturgicalDay.psalterWeek}
               </p>
             </div>
+            <p className="mt-4 max-w-2xl text-xs leading-5 text-amber-100/80">
+              {today.liturgicalDay.sourceUrl ? (
+                <a
+                  className="font-semibold underline decoration-amber-200/50 underline-offset-4 hover:decoration-amber-100"
+                  href={today.liturgicalDay.sourceUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {today.liturgicalDay.sourceLabel}
+                </a>
+              ) : (
+                (today.liturgicalDay.sourceLabel ?? "Local calendar fallback")
+              )}{" "}
+              ·{" "}
+              {today.liturgicalDay.weekdayCycle ?? "Weekday cycle"} ·{" "}
+              {today.liturgicalDay.sundayCycle ?? "Sunday cycle"}
+            </p>
           </div>
         </section>
 
-        <DailyScripture anchor={primaryAnchor} />
+        <MassReadingsPanel entry={today.massReadings} />
 
         <section aria-labelledby="library-heading">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -187,7 +205,7 @@ export default async function Home() {
 
             <ol className="grid gap-4 sm:grid-cols-3 sm:gap-0 sm:divide-x sm:divide-stone-300">
               <PathStep
-                detail={primaryAnchor?.citation ?? "Today’s appointed Scripture"}
+                detail={primaryMassCitation}
                 label="Receive the Word"
                 number="01"
               />
@@ -225,72 +243,6 @@ export default async function Home() {
         </footer>
       </div>
     </main>
-  );
-}
-
-async function DailyScripture({ anchor }: { anchor?: ScriptureAnchor }) {
-  const loadedAnchor = anchor ? await loadScriptureAnchor(anchor) : null;
-  const scriptureHref = anchor?.passages[0]
-    ? getScriptureHref(anchor.passages[0], "today")
-    : "/scripture";
-
-  return (
-    <section
-      aria-labelledby="daily-scripture-heading"
-      className="grid overflow-hidden rounded-2xl border border-stone-300/90 bg-[var(--panel)] shadow-[0_16px_42px_rgba(44,39,31,0.06)] lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]"
-      id="daily-scripture"
-    >
-      <div className="p-5 sm:p-8">
-        <div className="flex items-center gap-2 text-[var(--accent)]">
-          <ScrollText aria-hidden className="size-5" />
-          <p className="text-xs font-bold uppercase tracking-[0.16em]">
-            Scripture for today
-          </p>
-        </div>
-        <h2
-          className="mt-3 text-2xl font-semibold text-stone-950 sm:text-3xl"
-          id="daily-scripture-heading"
-        >
-          {loadedAnchor?.citation ?? "The appointed Word"}
-        </h2>
-
-        {loadedAnchor?.text ? (
-          <blockquote className="mt-5 max-w-3xl font-serif text-2xl leading-9 text-stone-900 sm:text-3xl sm:leading-10">
-            “{loadedAnchor.text}”
-          </blockquote>
-        ) : (
-          <p className="mt-5 max-w-3xl font-serif text-xl leading-8 text-stone-800 sm:text-2xl">
-            {loadedAnchor?.reflection ??
-              "Open the appointed passage and let Scripture give the first words."}
-          </p>
-        )}
-
-        {loadedAnchor?.sourceLabel ? (
-          <p className="mt-4 text-xs font-semibold text-stone-500">
-            {loadedAnchor.sourceLabel}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="flex flex-col justify-between gap-5 border-t border-stone-200 bg-[var(--panel-soft)] p-5 lg:border-l lg:border-t-0 lg:p-8">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.15em] text-stone-500">
-            Pray with the text
-          </p>
-          <p className="mt-3 text-sm leading-7 text-stone-700">
-            Read slowly. Notice one word that draws attention, then remain with
-            it before moving on.
-          </p>
-        </div>
-        <Link
-          className="inline-flex min-h-11 w-fit items-center gap-2 rounded-xl border border-stone-300 bg-white px-4 text-sm font-bold text-emerald-950 transition hover:border-emerald-900 hover:bg-emerald-50"
-          href={scriptureHref}
-        >
-          Open this passage
-          <ArrowRight aria-hidden className="size-4" />
-        </Link>
-      </div>
-    </section>
   );
 }
 
