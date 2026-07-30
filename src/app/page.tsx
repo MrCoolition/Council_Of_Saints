@@ -10,6 +10,7 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { FormationConsole } from "@/components/formation-console";
+import { HolyClock } from "@/components/holy-clock";
 import { MassReadingsPanel } from "@/components/mass-readings-panel";
 import { OfficeGuidePanels } from "@/components/office-guide-panels";
 import { formatPrayerItem } from "@/lib/domain";
@@ -140,6 +141,8 @@ export default async function Home() {
             </p>
           </div>
         </section>
+
+        <HolyClock />
 
         <MassReadingsPanel entry={today.massReadings} />
 

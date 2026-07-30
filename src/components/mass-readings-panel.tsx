@@ -95,31 +95,6 @@ export async function MassReadingsPanel({
           </span>
         </div>
 
-        <div className="grid gap-px bg-stone-200 lg:grid-cols-2">
-          <aside className="bg-emerald-50/80 p-5 sm:p-6">
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-900">
-              Keep the liturgies distinct
-            </p>
-            <p className="mt-2 text-sm leading-6 text-stone-700">
-              <strong className="text-stone-950">
-                Mass is separate from the Liturgy of the Hours.
-              </strong>{" "}
-              These are the readings proclaimed at Mass. The Office has its own
-              appointed psalms, readings, hymns, and intercessions.
-            </p>
-          </aside>
-          <aside className="bg-amber-50/85 p-5 sm:p-6">
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-amber-900">
-              About MAGNIFICAT
-            </p>
-            <p className="mt-2 text-sm leading-6 text-stone-700">
-              MAGNIFICAT&apos;s prayer offices are editorially adapted
-              devotions, not a verbatim edition of the canonical Liturgy of the
-              Hours. Its Mass pages may select one valid permitted lectionary
-              option; a different permitted choice is not an error.
-            </p>
-          </aside>
-        </div>
       </header>
 
       <section
@@ -541,31 +516,6 @@ function MassReadingsFallback({
           <p className="mt-2 text-sm leading-6 text-stone-700">
             {entry.notice}
           </p>
-        </div>
-
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          <aside className="rounded-xl border border-emerald-900/15 bg-emerald-50/70 p-4 sm:p-5">
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-900">
-              Mass and Office
-            </p>
-            <p className="mt-2 text-sm leading-6 text-stone-700">
-              <strong className="text-stone-950">
-                Mass is separate from the Liturgy of the Hours.
-              </strong>{" "}
-              The Office has its own appointed psalms, readings, hymns, and
-              intercessions.
-            </p>
-          </aside>
-          <aside className="rounded-xl border border-amber-300/80 bg-amber-50/70 p-4 sm:p-5">
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-amber-900">
-              About MAGNIFICAT
-            </p>
-            <p className="mt-2 text-sm leading-6 text-stone-700">
-              MAGNIFICAT&apos;s prayer offices are editorially adapted. Its
-              Mass pages may select a valid permitted lectionary option, so a
-              different valid option does not by itself indicate an error.
-            </p>
-          </aside>
         </div>
 
         <OfficialSources sources={entry.officialSources} />

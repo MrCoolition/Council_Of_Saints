@@ -1,0 +1,138 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Sanctum Council//Holy Clock//EN
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+X-WR-CALNAME:Sanctum Council — Liturgy of the Hours
+X-WR-TIMEZONE:America/New_York
+BEGIN:VTIMEZONE
+TZID:America/New_York
+X-LIC-LOCATION:America/New_York
+BEGIN:DAYLIGHT
+TZOFFSETFROM:-0500
+TZOFFSETTO:-0400
+TZNAME:EDT
+DTSTART:20070311T020000
+RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU
+END:DAYLIGHT
+BEGIN:STANDARD
+TZOFFSETFROM:-0400
+TZOFFSETTO:-0500
+TZNAME:EST
+DTSTART:20071104T020000
+RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU
+END:STANDARD
+END:VTIMEZONE
+BEGIN:VEVENT
+UID:office-readings@council-of-saints.vercel.app
+DTSTAMP:20260729T120000Z
+DTSTART;TZID=America/New_York:20260729T053000
+RRULE:FREQ=DAILY
+SUMMARY:Office of Readings
+DESCRIPTION:Time for the Office of Readings.\nOpen the appointed hour:
+ https://council-of-saints.vercel.app/#office-office_readings
+URL:https://council-of-saints.vercel.app/#office-office_readings
+TRANSP:OPAQUE
+BEGIN:VALARM
+TRIGGER:PT0M
+ACTION:DISPLAY
+DESCRIPTION:Time for the Office of Readings.
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:lauds@council-of-saints.vercel.app
+DTSTAMP:20260729T120000Z
+DTSTART;TZID=America/New_York:20260729T060000
+RRULE:FREQ=DAILY
+SUMMARY:Morning Prayer — Lauds
+DESCRIPTION:Time for Morning Prayer (Lauds).\nOpen the appointed hour:
+ https://council-of-saints.vercel.app/#office-morning_prayer
+URL:https://council-of-saints.vercel.app/#office-morning_prayer
+TRANSP:OPAQUE
+BEGIN:VALARM
+TRIGGER:PT0M
+ACTION:DISPLAY
+DESCRIPTION:Time for Morning Prayer (Lauds).
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:terce@council-of-saints.vercel.app
+DTSTAMP:20260729T120000Z
+DTSTART;TZID=America/New_York:20260729T090000
+RRULE:FREQ=DAILY
+SUMMARY:Midmorning Prayer — Terce
+DESCRIPTION:Time for Midmorning Prayer (Terce).\nOpen the appointed hour:
+ https://council-of-saints.vercel.app/#office-midmorning_prayer
+URL:https://council-of-saints.vercel.app/#office-midmorning_prayer
+TRANSP:OPAQUE
+BEGIN:VALARM
+TRIGGER:PT0M
+ACTION:DISPLAY
+DESCRIPTION:Time for Midmorning Prayer (Terce).
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:sext@council-of-saints.vercel.app
+DTSTAMP:20260729T120000Z
+DTSTART;TZID=America/New_York:20260729T120000
+RRULE:FREQ=DAILY
+SUMMARY:Midday Prayer — Sext
+DESCRIPTION:Time for Midday Prayer (Sext).\nOpen the appointed hour:
+ https://council-of-saints.vercel.app/#office-midday_prayer
+URL:https://council-of-saints.vercel.app/#office-midday_prayer
+TRANSP:OPAQUE
+BEGIN:VALARM
+TRIGGER:PT0M
+ACTION:DISPLAY
+DESCRIPTION:Time for Midday Prayer (Sext).
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:none@council-of-saints.vercel.app
+DTSTAMP:20260729T120000Z
+DTSTART;TZID=America/New_York:20260729T150000
+RRULE:FREQ=DAILY
+SUMMARY:Midafternoon Prayer — None
+DESCRIPTION:Time for Midafternoon Prayer (None).\nOpen the appointed hour:
+ https://council-of-saints.vercel.app/#office-midafternoon_prayer
+URL:https://council-of-saints.vercel.app/#office-midafternoon_prayer
+TRANSP:OPAQUE
+BEGIN:VALARM
+TRIGGER:PT0M
+ACTION:DISPLAY
+DESCRIPTION:Time for Midafternoon Prayer (None).
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:vespers@council-of-saints.vercel.app
+DTSTAMP:20260729T120000Z
+DTSTART;TZID=America/New_York:20260729T180000
+RRULE:FREQ=DAILY
+SUMMARY:Evening Prayer — Vespers
+DESCRIPTION:Time for Evening Prayer (Vespers).\nOpen the appointed hour:
+ https://council-of-saints.vercel.app/#office-evening_prayer
+URL:https://council-of-saints.vercel.app/#office-evening_prayer
+TRANSP:OPAQUE
+BEGIN:VALARM
+TRIGGER:PT0M
+ACTION:DISPLAY
+DESCRIPTION:Time for Evening Prayer (Vespers).
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:compline@council-of-saints.vercel.app
+DTSTAMP:20260729T120000Z
+DTSTART;TZID=America/New_York:20260729T210000
+RRULE:FREQ=DAILY
+SUMMARY:Night Prayer — Compline
+DESCRIPTION:Time for Night Prayer (Compline).\nOpen the appointed hour:
+ https://council-of-saints.vercel.app/#office-night_prayer
+URL:https://council-of-saints.vercel.app/#office-night_prayer
+TRANSP:OPAQUE
+BEGIN:VALARM
+TRIGGER:PT0M
+ACTION:DISPLAY
+DESCRIPTION:Time for Night Prayer (Compline).
+END:VALARM
+END:VEVENT
+END:VCALENDAR

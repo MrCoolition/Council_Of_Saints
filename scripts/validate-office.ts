@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { getLiturgicalDay } from "../src/lib/liturgical-calendar";
+import { HOLY_CLOCK_HOURS } from "../src/lib/liturgy-hours-clock";
 import { getOfficeDevotionalTexts } from "../src/lib/office-devotional-texts";
 import {
   getDailyOfficeGuides,
@@ -21,6 +22,9 @@ const weekdayDates = [
 async function main() {
   let anchorCount = 0;
   let segmentCount = 0;
+
+  validateHolyClock();
+  await validateCalendarAlarms();
 
   for (let psalterWeek = 1; psalterWeek <= 4; psalterWeek += 1) {
     for (const localDate of weekdayDates) {
@@ -189,8 +193,65 @@ async function main() {
   );
 
   console.log(
-    `Validated 4 weeks × 7 days × 7 prayer stops plus the July 29, 2026 U.S. golden fixture (${anchorCount} anchors, ${segmentCount} local Scripture segments).`,
+    `Validated the seven-hour Holy Clock, device alarms, 4 weeks × 7 days × 7 prayer stops, and the July 29, 2026 U.S. golden fixture (${anchorCount} anchors, ${segmentCount} local Scripture segments).`,
   );
+}
+
+function validateHolyClock() {
+  const expected = [
+    ["office_readings", "05:30", "#office-office_readings"],
+    ["morning_prayer", "06:00", "#office-morning_prayer"],
+    ["midmorning_prayer", "09:00", "#office-midmorning_prayer"],
+    ["midday_prayer", "12:00", "#office-midday_prayer"],
+    ["midafternoon_prayer", "15:00", "#office-midafternoon_prayer"],
+    ["evening_prayer", "18:00", "#office-evening_prayer"],
+    ["night_prayer", "21:00", "#office-night_prayer"],
+  ] as const;
+
+  assert(
+    HOLY_CLOCK_HOURS.length === expected.length,
+    "The Holy Clock must expose all seven Hours",
+  );
+
+  for (const [index, [id, defaultTime, anchor]] of expected.entries()) {
+    const hour = HOLY_CLOCK_HOURS[index];
+    assert(
+      hour.id === id &&
+        hour.defaultTime === defaultTime &&
+        hour.anchor === anchor,
+      `Holy Clock stop ${index + 1} must remain ${id} at ${defaultTime}`,
+    );
+  }
+}
+
+async function validateCalendarAlarms() {
+  const calendar = await readFile(
+    path.join(process.cwd(), "public", "liturgy-hours.ics"),
+    "utf8",
+  );
+
+  assert(
+    calendar.match(/^BEGIN:VEVENT$/gm)?.length === HOLY_CLOCK_HOURS.length,
+    "The device calendar must contain seven recurring prayer events",
+  );
+  assert(
+    calendar.match(/^BEGIN:VALARM$/gm)?.length === HOLY_CLOCK_HOURS.length,
+    "Every device-calendar prayer event must carry an alarm",
+  );
+  assert(
+    calendar.match(/^RRULE:FREQ=DAILY$/gm)?.length ===
+      HOLY_CLOCK_HOURS.length,
+    "Every device-calendar prayer event must recur daily",
+  );
+
+  for (const hour of HOLY_CLOCK_HOURS) {
+    assert(
+      calendar.includes(
+        `https://council-of-saints.vercel.app/${hour.anchor}`,
+      ),
+      `${hour.name} calendar alarm must open its exact prayer anchor`,
+    );
+  }
 }
 
 async function validatePassage(scripturePassage: {

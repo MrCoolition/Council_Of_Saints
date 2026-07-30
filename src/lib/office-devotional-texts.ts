@@ -3,9 +3,9 @@ import type { OfficeHourType } from "@/lib/office-psalter";
 /**
  * Copyright-safe material for personal prayer alongside the canonical hours.
  *
- * This module intentionally contains no current ICEL Liturgy of the Hours text
- * and no MAGNIFICAT editorial text. A hymn's inclusion is a devotional
- * recommendation, not a claim that it is the proper hymn for a date or office.
+ * This module intentionally contains no current ICEL Liturgy of the Hours text.
+ * A hymn's inclusion is a devotional recommendation, not a claim that it is
+ * the proper hymn for a date or office.
  */
 
 export const DEVOTIONAL_OFFICE_HOUR_KEYS = [
@@ -92,9 +92,8 @@ export const DEVOTIONAL_TEXT_BOUNDARY = {
   status: "devotional_alternative",
   personalUse: true,
   notOfficialIcel: true,
-  notMagnificatEditorialText: true,
   notice:
-    "These built-in texts are copyright-safe aids for personal prayer. They neither reproduce nor replace the current ICEL Liturgy of the Hours, and they do not reproduce MAGNIFICAT editorial material.",
+    "Public-domain hymns and original Sanctum Council petitions are included for personal prayer.",
   structureNote:
     "In the Roman Liturgy of the Hours, intercessions belong especially to Morning and Evening Prayer. Petitions supplied at the other hours here are optional personal devotions outside the official structure.",
 } as const;
