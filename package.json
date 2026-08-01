@@ -10,6 +10,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "office:validate": "tsx scripts/validate-office.ts",
+    "mass:validate": "tsx scripts/validate-mass.ts",
     "scripture:import": "tsx scripts/import-scripture.ts"
   },
   "dependencies": {

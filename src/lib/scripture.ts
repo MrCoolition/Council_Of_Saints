@@ -31,6 +31,7 @@ export type ScripturePassage = ScriptureLocation & {
 export type ScriptureReturnSource =
   | "today"
   | "mass"
+  | "mass-anticipated"
   | "office-readings"
   | "office-morning"
   | "office-midmorning"
@@ -551,6 +552,7 @@ export function parseScriptureReturnSource(
 
   return source === "today" ||
     source === "mass" ||
+    source === "mass-anticipated" ||
     source === "office-readings" ||
     source === "office-morning" ||
     source === "office-midmorning" ||

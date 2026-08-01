@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  AlarmClock,
   Bell,
   BellOff,
   CalendarPlus,
@@ -56,8 +55,6 @@ export function HolyClock() {
     getDefaultHolyClockPreferences,
   );
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
-  const [permission, setPermission] =
-    useState<PermissionState>("unsupported");
   const [announcement, setAnnouncement] = useState("");
   const audioContextRef = useRef<AudioContext | null>(null);
   const serviceWorkerRegistrationRef =
@@ -77,9 +74,6 @@ export function HolyClock() {
   useEffect(() => {
     const loadPreferences = window.setTimeout(() => {
       setPreferences(readSavedPreferences());
-      setPermission(
-        "Notification" in window ? Notification.permission : "unsupported",
-      );
       setHasLoadedPreferences(true);
     }, 0);
 
@@ -285,7 +279,6 @@ export function HolyClock() {
       }
     }
 
-    setPermission(nextPermission);
     persistPreferences({ ...preferences, remindersEnabled: true });
     setAnnouncement(
       nextPermission === "granted"
@@ -321,21 +314,41 @@ export function HolyClock() {
   const reminderLabel = preferences.remindersEnabled
     ? "Turn off reminders"
     : "Enable reminders";
+  const downloadCalendarAlarms = useCallback(() => {
+    const calendar = createHolyClockCalendar(
+      now ?? new Date(),
+      preferences.times,
+      timeZone,
+      window.location.origin,
+    );
+    const url = URL.createObjectURL(
+      new Blob([calendar], { type: "text/calendar;charset=utf-8" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "sanctum-council-holy-hours.ics";
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    setAnnouncement("Device calendar alarms prepared.");
+  }, [now, preferences.times, timeZone]);
 
   return (
     <section
       aria-labelledby="holy-clock-heading"
-      className="scroll-mt-24 overflow-hidden rounded-[2rem] border border-emerald-950/15 bg-[var(--panel)] shadow-[0_24px_70px_rgba(7,59,46,0.12)]"
+      className="scroll-mt-24 overflow-hidden rounded-[2rem] border border-sanctuary-night/15 bg-[var(--panel)] shadow-[var(--shadow-raised)]"
       id="holy-clock"
     >
       <div className="grid lg:grid-cols-[minmax(0,0.94fr)_minmax(24rem,1.06fr)]">
-        <div className="relative isolate overflow-hidden bg-emerald-950 px-5 py-8 text-stone-50 sm:px-8 sm:py-10">
+        <div className="relative isolate overflow-hidden bg-sanctuary-night px-5 py-8 text-vellum sm:px-8 sm:py-10">
           <div
             aria-hidden
             className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_50%_38%,rgba(217,180,94,0.18),transparent_34%),radial-gradient(circle_at_50%_120%,rgba(255,255,255,0.09),transparent_48%)]"
           />
           <header className="mx-auto max-w-lg text-center">
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-amber-200">
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-[var(--gilt-light)]">
               Sanctify the hours
             </p>
             <h2
@@ -344,7 +357,7 @@ export function HolyClock() {
             >
               The Holy Clock
             </h2>
-            <p className="mt-3 text-sm leading-6 text-emerald-50/75">
+            <p className="mt-3 text-sm leading-6 text-vellum/75">
               Seven Hours keep the whole day turned toward God.
             </p>
           </header>
@@ -360,41 +373,41 @@ export function HolyClock() {
             ) : (
               <div
                 aria-hidden
-                className="absolute inset-3 rounded-full border border-amber-200/20 bg-emerald-950/70"
+                className="absolute inset-3 rounded-full border border-gilt/30 bg-sanctuary-night/70"
               />
             )}
-            <div className="pointer-events-none absolute inset-[27%] flex flex-col items-center justify-center rounded-full border border-amber-200/25 bg-emerald-950/90 text-center shadow-[0_0_45px_rgba(217,180,94,0.15)]">
-              <span className="font-mono text-[clamp(1.45rem,6vw,2.5rem)] font-semibold tracking-[-0.04em] text-amber-100">
+            <div className="pointer-events-none absolute inset-[27%] flex flex-col items-center justify-center rounded-full border border-gilt/35 bg-sanctuary-night/90 text-center shadow-[0_0_45px_rgb(198_161_91/0.15)]">
+              <span className="font-mono text-[clamp(1.45rem,6vw,2.5rem)] font-semibold tracking-[-0.04em] text-[var(--gilt-light)]">
                 {now ? CLOCK_FORMATTER.format(now) : "--:--:--"}
               </span>
-              <span className="mt-1 px-2 text-[0.6rem] font-bold uppercase tracking-[0.18em] text-emerald-100/60 sm:text-[0.68rem]">
+              <span className="mt-1 px-2 text-[0.6rem] font-bold uppercase tracking-[0.18em] text-vellum/60 sm:text-[0.68rem]">
                 24-hour · {timeZone}
               </span>
             </div>
           </div>
 
           <div className="mx-auto mt-3 grid max-w-lg grid-cols-2 gap-3">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
-              <p className="text-[0.65rem] font-bold uppercase tracking-[0.16em] text-emerald-100/60">
+            <div className="rounded-2xl border border-vellum/10 bg-vellum/[0.06] p-4">
+              <p className="text-[0.65rem] font-bold uppercase tracking-[0.16em] text-vellum/60">
                 Present watch
               </p>
-              <p className="mt-2 font-serif text-lg font-semibold text-amber-100">
+              <p className="mt-2 font-serif text-lg font-semibold text-[var(--gilt-light)]">
                 {clockState?.current.hour.traditionalName ?? "—"}
               </p>
-              <p className="mt-1 text-xs text-emerald-50/65">
+              <p className="mt-1 text-xs text-vellum/65">
                 {clockState?.current.hour.name ?? "Finding the hour"}
               </p>
             </div>
-            <div className="rounded-2xl border border-amber-200/20 bg-amber-100/[0.08] p-4">
-              <p className="text-[0.65rem] font-bold uppercase tracking-[0.16em] text-amber-100/65">
+            <div className="rounded-2xl border border-gilt/30 bg-gilt/[0.08] p-4">
+              <p className="text-[0.65rem] font-bold uppercase tracking-[0.16em] text-gilt/80">
                 Next bell
               </p>
-              <p className="mt-2 font-mono text-lg font-bold text-amber-100">
+              <p className="mt-2 font-mono text-lg font-bold text-[var(--gilt-light)]">
                 {clockState
                   ? formatHolyClockCountdown(clockState.secondsToNext)
                   : "--:--:--"}
               </p>
-              <p className="mt-1 truncate text-xs text-emerald-50/65">
+              <p className="mt-1 truncate text-xs text-vellum/65">
                 {clockState
                   ? `${clockState.next.hour.traditionalName} · ${clockState.next.time}`
                   : "Preparing the schedule"}
@@ -404,24 +417,21 @@ export function HolyClock() {
         </div>
 
         <div className="px-4 py-6 sm:px-7 sm:py-8">
-          <div className="flex flex-col gap-4 border-b border-stone-200 pb-6 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex flex-col gap-4 border-b border-hairline pb-6 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--accent)]">
                 Today&apos;s traditional rhythm
               </p>
-              <p className="mt-2 font-serif text-2xl font-semibold text-stone-950">
+              <p className="mt-2 font-serif text-2xl font-semibold text-foreground">
                 {now ? DATE_FORMATTER.format(now) : "The daily Hours"}
-              </p>
-              <p className="mt-1 text-sm text-stone-500">
-                Times are saved on this device.
               </p>
             </div>
             <button
               aria-pressed={preferences.remindersEnabled}
               className={`inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition ${
                 preferences.remindersEnabled
-                  ? "bg-emerald-950 text-amber-100 hover:bg-emerald-900"
-                  : "border border-emerald-900/25 bg-emerald-50 text-emerald-950 hover:border-emerald-900"
+                  ? "bg-sanctuary-night text-[var(--gilt-light)] hover:bg-ecclesial-green"
+                  : "border border-ecclesial-green/25 bg-ecclesial-green/5 text-ecclesial-green hover:border-ecclesial-green"
               }`}
               onClick={() => void toggleReminders()}
               type="button"
@@ -442,8 +452,8 @@ export function HolyClock() {
 
               return (
                 <li
-                  className={`grid grid-cols-[2.5rem_minmax(0,1fr)_5.75rem] items-center gap-3 border-b border-stone-200 py-3 last:border-b-0 ${
-                    isCurrent ? "rounded-xl bg-emerald-50/80 px-2" : "px-2"
+                  className={`grid grid-cols-[2.5rem_minmax(0,1fr)_5.75rem] items-center gap-3 border-b border-hairline py-3 last:border-b-0 ${
+                    isCurrent ? "rounded-xl bg-ecclesial-green/5 px-2" : "px-2"
                   }`}
                   key={hour.id}
                 >
@@ -451,10 +461,10 @@ export function HolyClock() {
                     aria-hidden
                     className={`inline-flex size-9 items-center justify-center rounded-full font-mono text-[0.65rem] font-bold ${
                       isCurrent
-                        ? "bg-emerald-950 text-amber-100"
+                        ? "bg-sanctuary-night text-[var(--gilt-light)]"
                         : isNext
-                          ? "border border-amber-500 bg-amber-50 text-amber-900"
-                          : "border border-stone-300 bg-white text-stone-500"
+                          ? "border border-gilt bg-gilt/15 text-oxblood"
+                          : "border border-hairline bg-vellum text-muted"
                     }`}
                   >
                     {String(index + 1).padStart(2, "0")}
@@ -464,23 +474,23 @@ export function HolyClock() {
                     href={hour.anchor}
                   >
                     <span className="flex flex-wrap items-baseline gap-x-2">
-                      <span className="font-serif text-lg font-semibold text-stone-950 group-hover:text-emerald-900">
+                      <span className="font-serif text-lg font-semibold text-foreground group-hover:text-ecclesial-green">
                         {hour.traditionalName}
                       </span>
-                      <span className="text-xs font-semibold text-stone-500">
+                      <span className="text-xs font-semibold text-muted">
                         {hour.name}
                       </span>
                       {isCurrent ? (
-                        <span className="text-[0.62rem] font-bold uppercase tracking-[0.12em] text-emerald-800">
+                        <span className="text-[0.62rem] font-bold uppercase tracking-[0.12em] text-ecclesial-green">
                           Current
                         </span>
                       ) : isNext ? (
-                        <span className="text-[0.62rem] font-bold uppercase tracking-[0.12em] text-amber-800">
+                        <span className="text-[0.62rem] font-bold uppercase tracking-[0.12em] text-oxblood">
                           Next
                         </span>
                       ) : null}
                     </span>
-                    <span className="mt-0.5 block text-xs leading-5 text-stone-500">
+                    <span className="mt-0.5 block text-xs leading-5 text-muted">
                       {hour.canonicalWindow}
                     </span>
                   </a>
@@ -489,7 +499,7 @@ export function HolyClock() {
                       Reminder time for {hour.name}
                     </span>
                     <input
-                      className="min-h-10 w-[5.75rem] rounded-lg border border-stone-300 bg-white px-2 font-mono text-sm font-bold text-stone-900 transition hover:border-emerald-800 focus:border-emerald-900"
+                      className="min-h-10 w-[5.75rem] rounded-lg border border-hairline bg-vellum px-2 font-mono text-sm font-bold text-foreground transition hover:border-ecclesial-green focus:border-ecclesial-green"
                       onChange={(event) =>
                         updateTime(hour.id, event.currentTarget.value)
                       }
@@ -504,34 +514,26 @@ export function HolyClock() {
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <button
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-4 text-sm font-bold text-stone-800 transition hover:border-amber-700 hover:bg-amber-50"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-hairline bg-vellum px-4 text-sm font-bold text-foreground transition hover:border-gilt hover:bg-gilt/15"
               onClick={() => void testBell()}
               type="button"
             >
-              <Volume2 aria-hidden className="size-4 text-amber-800" />
+              <Volume2 aria-hidden className="size-4 text-oxblood" />
               Test bell & vibration
             </button>
-            <a
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-4 text-center text-sm font-bold text-stone-800 transition hover:border-emerald-800 hover:bg-emerald-50"
-              href="/liturgy-hours.ics"
+            <button
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-hairline bg-vellum px-4 text-center text-sm font-bold text-foreground transition hover:border-ecclesial-green hover:bg-ecclesial-green/5"
+              onClick={downloadCalendarAlarms}
+              type="button"
             >
-              <CalendarPlus aria-hidden className="size-4 text-emerald-900" />
+              <CalendarPlus aria-hidden className="size-4 text-ecclesial-green" />
               Add device calendar alarms
-            </a>
+            </button>
           </div>
 
-          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-stone-200 bg-[var(--panel-soft)] px-4 py-3 text-xs leading-5 text-stone-600 sm:flex-row sm:items-center sm:justify-between">
-            <p className="flex items-start gap-2">
-              <AlarmClock
-                aria-hidden
-                className="mt-0.5 size-4 shrink-0 text-[var(--accent)]"
-              />
-              <span>
-                {getReminderStatus(preferences.remindersEnabled, permission)}
-              </span>
-            </p>
+          <div className="mt-4 flex justify-end">
             <button
-              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg px-3 font-bold text-emerald-900 transition hover:bg-white"
+              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg px-3 text-xs font-bold text-ecclesial-green transition hover:bg-vellum"
               onClick={restoreTraditionalTimes}
               type="button"
             >
@@ -547,6 +549,68 @@ export function HolyClock() {
       </div>
     </section>
   );
+}
+
+function createHolyClockCalendar(
+  date: Date,
+  times: HolyClockPreferences["times"],
+  timeZone: string,
+  origin: string,
+) {
+  const calendarDate = [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("");
+  const generatedAt = new Date()
+    .toISOString()
+    .replace(/\.\d{3}Z$/, "Z")
+    .replaceAll(/[-:]/g, "");
+  const events = HOLY_CLOCK_HOURS.flatMap((hour) => {
+    const start = times[hour.id].replace(":", "") + "00";
+    const summary = escapeCalendarText(`${hour.traditionalName} · ${hour.name}`);
+    const description = escapeCalendarText(`Open Sanctum Council and pray ${hour.name}.`);
+    const url = `${origin}/${hour.anchor}`;
+
+    return [
+      "BEGIN:VEVENT",
+      `UID:sanctum-council-${hour.id}@sanctum-council`,
+      `DTSTAMP:${generatedAt}`,
+      `DTSTART;TZID=${timeZone}:${calendarDate}T${start}`,
+      "DURATION:PT15M",
+      "RRULE:FREQ=DAILY",
+      `SUMMARY:${summary}`,
+      `DESCRIPTION:${description}`,
+      `URL:${url}`,
+      "BEGIN:VALARM",
+      "TRIGGER:PT0M",
+      "ACTION:DISPLAY",
+      `DESCRIPTION:${summary}`,
+      "END:VALARM",
+      "END:VEVENT",
+    ];
+  });
+
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "PRODID:-//Sanctum Council//Holy Clock//EN",
+    `X-WR-CALNAME:${escapeCalendarText("Sanctum Council · Holy Clock")}`,
+    `X-WR-TIMEZONE:${timeZone}`,
+    ...events,
+    "END:VCALENDAR",
+    "",
+  ].join("\r\n");
+}
+
+function escapeCalendarText(value: string) {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll(";", "\\;")
+    .replaceAll(",", "\\,")
+    .replaceAll(/\r?\n/g, "\\n");
 }
 
 function SacredDial({
@@ -572,9 +636,11 @@ function SacredDial({
       <circle
         cx={CLOCK_CENTER}
         cy={CLOCK_CENTER}
-        fill="rgba(3, 35, 27, 0.72)"
+        fill="var(--sanctuary-night)"
+        fillOpacity="0.72"
         r="150"
-        stroke="rgba(245, 213, 139, 0.24)"
+        stroke="var(--gilt-light)"
+        strokeOpacity="0.24"
         strokeWidth="1"
       />
       <circle
@@ -582,9 +648,10 @@ function SacredDial({
         cy={CLOCK_CENTER}
         fill="none"
         r="140"
-        stroke="rgba(245, 213, 139, 0.16)"
+        stroke="var(--gilt-light)"
         strokeDasharray="2 7"
         strokeLinecap="round"
+        strokeOpacity="0.16"
         strokeWidth="2"
       />
       <circle
@@ -592,10 +659,11 @@ function SacredDial({
         cy={CLOCK_CENTER}
         fill="none"
         r="146"
-        stroke="rgba(245, 213, 139, 0.78)"
+        stroke="var(--gilt-light)"
         strokeDasharray={OUTER_CIRCUMFERENCE}
         strokeDashoffset={OUTER_CIRCUMFERENCE * (1 - dayProgress)}
         strokeLinecap="round"
+        strokeOpacity="0.78"
         strokeWidth="2.5"
         transform={`rotate(-90 ${CLOCK_CENTER} ${CLOCK_CENTER})`}
       />
@@ -606,11 +674,8 @@ function SacredDial({
         return (
           <line
             key={index}
-            stroke={
-              index % 3 === 0
-                ? "rgba(245, 213, 139, 0.52)"
-                : "rgba(255, 255, 255, 0.16)"
-            }
+            stroke={index % 3 === 0 ? "var(--gilt-light)" : "var(--vellum)"}
+            strokeOpacity={index % 3 === 0 ? 0.52 : 0.16}
             strokeWidth={index % 3 === 0 ? 1.6 : 1}
             x1={inner.x}
             x2={outer.x}
@@ -620,21 +685,27 @@ function SacredDial({
         );
       })}
 
-      <g opacity="0.16" stroke="#f5d58b" strokeLinecap="round">
+      <g opacity="0.16" stroke="var(--gilt-light)" strokeLinecap="round">
         <line x1="160" x2="160" y1="102" y2="218" strokeWidth="5" />
         <line x1="132" x2="188" y1="137" y2="137" strokeWidth="5" />
       </g>
 
       <line
-        stroke="rgba(255, 250, 231, 0.48)"
+        stroke="var(--vellum)"
         strokeLinecap="round"
+        strokeOpacity="0.48"
         strokeWidth="1.5"
         x1={CLOCK_CENTER}
         x2={handEnd.x}
         y1={CLOCK_CENTER}
         y2={handEnd.y}
       />
-      <circle cx={CLOCK_CENTER} cy={CLOCK_CENTER} fill="#f5d58b" r="3.5" />
+      <circle
+        cx={CLOCK_CENTER}
+        cy={CLOCK_CENTER}
+        fill="var(--gilt-light)"
+        r="3.5"
+      />
 
       {HOLY_CLOCK_HOURS.map((hour, index) => {
         const angle = (timeToMinutes(times[hour.id]) / 1_440) * 360 - 90;
@@ -650,21 +721,29 @@ function SacredDial({
                 cy={point.y}
                 fill="none"
                 r="15"
-                stroke="rgba(245, 213, 139, 0.38)"
+                stroke="var(--gilt-light)"
+                strokeOpacity="0.38"
                 strokeWidth="6"
               />
             ) : null}
             <circle
               cx={point.x}
               cy={point.y}
-              fill={isCurrent ? "#f5d58b" : isNext ? "#fff8dc" : "#0d5a46"}
+              fill={
+                isCurrent
+                  ? "var(--gilt-light)"
+                  : isNext
+                    ? "var(--vellum)"
+                    : "var(--ecclesial-green)"
+              }
               r={isCurrent ? 9.5 : 8}
-              stroke={isCurrent || isNext ? "#f5d58b" : "rgba(245,213,139,.7)"}
+              stroke="var(--gilt-light)"
+              strokeOpacity={isCurrent || isNext ? 1 : 0.7}
               strokeWidth={isCurrent ? 3 : 1.5}
             />
             <text
               dominantBaseline="middle"
-              fill={isCurrent ? "#063b2e" : "#fff8dc"}
+              fill={isCurrent ? "var(--sanctuary-night)" : "var(--vellum)"}
               fontFamily="ui-monospace, monospace"
               fontSize="7"
               fontWeight="700"
@@ -707,25 +786,6 @@ function strikeBell(context: AudioContext, startTime: number, pitch: number) {
     oscillator.start(startTime);
     oscillator.stop(startTime + partial.decay + 0.05);
   }
-}
-
-function getReminderStatus(
-  remindersEnabled: boolean,
-  permission: PermissionState,
-) {
-  if (!remindersEnabled) {
-    return "Reminders are off. Enabling them activates the local bell and vibration.";
-  }
-
-  if (permission === "granted") {
-    return "Reminders are on: bell, vibration, and browser notification while Sanctum is active.";
-  }
-
-  if (permission === "denied") {
-    return "Bell and vibration are on; browser notifications are blocked on this device.";
-  }
-
-  return "Bell and vibration are on. Device calendar alarms continue when the app is closed.";
 }
 
 function polarPoint(angleInDegrees: number, radius: number) {

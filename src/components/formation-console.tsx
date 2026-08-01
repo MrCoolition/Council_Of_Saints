@@ -151,7 +151,6 @@ export function FormationConsole({
   defaultDifficultyLevel,
   initialLog,
   initialHistory,
-  initialSaveMode,
 }: FormationConsoleProps) {
   const [rule, setRule] = useState<RuleState>({
     enabledItems: defaultEnabledItems,
@@ -160,7 +159,6 @@ export function FormationConsole({
   const [habits, setHabits] =
     useState<Partial<Record<PrayerItemType, HabitStatus>>>(initialLog);
   const [activeTab, setActiveTab] = useState<FormationTab>("today");
-  const [saveMode, setSaveMode] = useState<SaveMode>(initialSaveMode);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [deviceHistory, setDeviceHistory] = useState<HabitHistory>({});
 
@@ -287,15 +285,13 @@ export function FormationConsole({
     setSaveState("saving");
 
     try {
-      const response = await fetch("/api/habit-log", {
+      await fetch("/api/habit-log", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ itemType, status, localDate }),
       });
-      const result = (await response.json()) as { mode?: string };
-      setSaveMode(result.mode === "account" ? "account" : "device");
     } catch {
-      setSaveMode("device");
+      // Device persistence has already completed.
     } finally {
       setSaveState("saved");
     }
@@ -305,15 +301,13 @@ export function FormationConsole({
     setSaveState("saving");
 
     try {
-      const response = await fetch("/api/prayer-rule", {
+      await fetch("/api/prayer-rule", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(nextRule),
       });
-      const result = (await response.json()) as { mode?: string };
-      setSaveMode(result.mode === "account" ? "account" : "device");
     } catch {
-      setSaveMode("device");
+      // Device persistence has already completed.
     } finally {
       setSaveState("saved");
     }
@@ -356,24 +350,24 @@ export function FormationConsole({
       className="grid scroll-mt-24 gap-5 lg:grid-cols-[minmax(0,0.98fr)_minmax(0,1.02fr)]"
       id="formation"
     >
-      <div className="rounded-2xl border border-stone-300/90 bg-[var(--panel)] p-4 shadow-[0_16px_42px_rgba(44,39,31,0.06)] sm:p-6">
-        <div className="border-b border-stone-200 pb-5">
+      <div className="rounded-2xl border border-hairline bg-[var(--panel)] p-4 shadow-[var(--shadow-soft)] sm:p-6">
+        <div className="border-b border-hairline pb-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--accent)]">
               Rule of life
             </p>
             <h2
-              className="mt-2 text-2xl font-semibold text-stone-950 sm:text-3xl"
+              className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl"
               id="formation-heading"
             >
               {todayStats.done} of {todayStats.total} anchors kept
             </h2>
             <p
               aria-live="polite"
-              className="mt-2 text-xs font-semibold uppercase tracking-wide text-stone-500"
+              className="sr-only"
               role="status"
             >
-              {getFormationSaveLabel(saveState, saveMode)}
+              {getFormationSaveLabel(saveState)}
             </p>
           </div>
 
@@ -388,7 +382,7 @@ export function FormationConsole({
 
         <div
           aria-label="Rule of life views"
-          className="mt-4 grid grid-cols-3 gap-1 rounded-xl border border-stone-200 bg-stone-100/80 p-1"
+          className="mt-4 grid grid-cols-3 gap-1 rounded-xl border border-hairline bg-parchment/80 p-1"
           onKeyDown={handleTabKeyDown}
           role="tablist"
         >
@@ -488,21 +482,21 @@ function TodayRule({
 
         return (
           <div
-            className="grid gap-4 rounded-xl border border-stone-200 bg-white/70 p-3 sm:p-4"
+            className="grid gap-4 rounded-xl border border-hairline bg-vellum/70 p-3 sm:p-4"
             key={itemType}
           >
             <div className="flex min-w-0 items-center gap-3">
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-emerald-950 text-amber-100 shadow-sm">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-sanctuary-night text-[var(--gilt-light)] shadow-sm">
                 <ItemIcon aria-hidden className="size-5" />
               </span>
               <div className="min-w-0">
                 <p
-                  className="truncate text-sm font-semibold text-stone-950"
+                  className="truncate text-sm font-semibold text-foreground"
                   id={itemLabelId}
                 >
                   {itemLabel}
                 </p>
-                <p className="text-xs text-stone-600">
+                <p className="text-xs text-muted">
                   {currentStatus ? formatStatus(currentStatus) : "Open"}
                 </p>
               </div>
@@ -523,8 +517,8 @@ function TodayRule({
                     className={[
                       "inline-flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-xl border px-2 py-2 text-sm font-semibold transition last:col-span-2 sm:last:col-span-1",
                       selected
-                        ? "border-emerald-950 bg-emerald-950 text-amber-50 shadow-sm"
-                        : "border-stone-300 bg-white text-stone-700 hover:border-emerald-900 hover:bg-emerald-50 hover:text-emerald-950",
+                        ? "border-sanctuary-night bg-sanctuary-night text-vellum shadow-sm"
+                        : "border-hairline bg-vellum text-muted hover:border-ecclesial-green hover:bg-[var(--panel-soft)] hover:text-ecclesial-green",
                     ].join(" ")}
                     key={value}
                     onClick={() => onSetHabit(itemType, value)}
@@ -558,10 +552,10 @@ function RuleBuilder({
     <div className="space-y-5">
       <div>
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-stone-950">
+          <h3 className="text-sm font-semibold text-foreground">
             Commitments
           </h3>
-          <span className="text-xs font-semibold text-stone-500">
+          <span className="text-xs font-semibold text-muted">
             {enabledItems.length} active
           </span>
         </div>
@@ -575,8 +569,8 @@ function RuleBuilder({
                 className={[
                   "grid min-h-20 grid-cols-[2.5rem_1fr] items-center gap-3 rounded-xl border px-3 py-2 text-left transition",
                   selected
-                    ? "border-emerald-950 bg-emerald-950 text-amber-50 shadow-sm"
-                    : "border-stone-300 bg-white text-stone-800 hover:border-emerald-900 hover:bg-emerald-50",
+                    ? "border-sanctuary-night bg-sanctuary-night text-vellum shadow-sm"
+                    : "border-hairline bg-vellum text-foreground hover:border-ecclesial-green hover:bg-[var(--panel-soft)]",
                 ].join(" ")}
                 key={value}
                 onClick={() => onToggleItem(value)}
@@ -586,8 +580,8 @@ function RuleBuilder({
                   className={[
                     "flex size-10 items-center justify-center rounded-xl",
                     selected
-                      ? "bg-amber-100 text-emerald-950"
-                      : "bg-stone-900 text-amber-50",
+                      ? "bg-[var(--gilt-light)] text-sanctuary-night"
+                      : "bg-sanctuary-night text-vellum",
                   ].join(" ")}
                 >
                   <Icon aria-hidden className="size-4" />
@@ -599,7 +593,7 @@ function RuleBuilder({
                   <span
                     className={[
                       "mt-0.5 block text-xs leading-5",
-                      selected ? "text-amber-100" : "text-stone-500",
+                      selected ? "text-[var(--gilt-light)]" : "text-muted",
                     ].join(" ")}
                   >
                     {detail}
@@ -611,10 +605,10 @@ function RuleBuilder({
         </div>
       </div>
 
-      <div className="border-t border-stone-200 pt-4">
+      <div className="border-t border-hairline pt-4">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-stone-950">Intensity</h3>
-          <span className="text-xs font-semibold text-stone-500">
+          <h3 className="text-sm font-semibold text-foreground">Intensity</h3>
+          <span className="text-xs font-semibold text-muted">
             Level {difficultyLevel}
           </span>
         </div>
@@ -625,8 +619,8 @@ function RuleBuilder({
               className={[
                 "min-h-11 rounded-xl border text-sm font-semibold transition",
                 difficultyLevel === value
-                  ? "border-emerald-950 bg-emerald-950 text-amber-50 shadow-sm"
-                  : "border-stone-300 bg-white text-stone-800 hover:border-emerald-900 hover:bg-emerald-50",
+                  ? "border-sanctuary-night bg-sanctuary-night text-vellum shadow-sm"
+                  : "border-hairline bg-vellum text-foreground hover:border-ecclesial-green hover:bg-[var(--panel-soft)]",
               ].join(" ")}
               key={value}
               onClick={() => onDifficultyChange(value)}
@@ -662,14 +656,14 @@ function WeeklyExamen({
         <WeeklyStat label="Missed" value={summary.missed} />
       </div>
 
-      <div className="rounded-xl border border-stone-300 bg-white/80 p-4">
+      <div className="rounded-xl border border-hairline bg-vellum/80 p-4">
         <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--accent)]">
           Weekly examen
         </p>
-        <p className="mt-3 text-3xl font-semibold text-stone-950">
+        <p className="mt-3 text-3xl font-semibold text-foreground">
           {keptRate}%
         </p>
-        <p className="mt-2 text-sm leading-6 text-stone-700">{nextStep}</p>
+        <p className="mt-2 text-sm leading-6 text-muted">{nextStep}</p>
       </div>
     </div>
   );
@@ -677,57 +671,52 @@ function WeeklyExamen({
 
 function CouncilPanel({ counsel }: { counsel: Counsel }) {
   return (
-    <aside className="relative overflow-hidden rounded-2xl border border-emerald-900 bg-emerald-950 p-5 text-amber-50 shadow-[0_18px_44px_rgba(3,46,34,0.16)] sm:p-6">
+    <aside className="relative overflow-hidden rounded-2xl border border-ecclesial-green bg-sanctuary-night p-5 text-vellum shadow-[var(--shadow-sanctuary)] sm:p-6">
       <div
         aria-hidden
-        className="pointer-events-none absolute -right-20 -top-24 size-64 rounded-full border border-amber-200/10"
+        className="pointer-events-none absolute -right-20 -top-24 size-64 rounded-full border border-gilt/20"
       />
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-200">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--gilt-light)]">
             Council prompt
           </p>
           <h2 className="mt-2 text-2xl font-semibold sm:text-3xl">
             {counsel.saintName}
           </h2>
         </div>
-        <span className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-amber-100 text-emerald-950 shadow-sm">
+        <span className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-[var(--gilt-light)] text-sanctuary-night shadow-sm">
           <ShieldCheck aria-hidden className="size-5" />
         </span>
       </div>
 
-      <p className="relative mt-5 font-serif text-xl leading-8 text-amber-50">
+      <p className="relative mt-5 font-serif text-xl leading-8 text-vellum">
         {counsel.message}
       </p>
 
-      <div className="relative mt-5 grid gap-4 border-y border-emerald-800 py-5 sm:grid-cols-3 sm:gap-0 sm:divide-x sm:divide-emerald-800">
+      <div className="relative mt-5 grid gap-4 border-y border-ecclesial-green py-5 sm:grid-cols-3 sm:gap-0 sm:divide-x sm:divide-ecclesial-green">
         <PromptStat label="Action" value={counsel.actionItem} />
         <PromptStat label="Virtue" value={counsel.virtueFocus} />
         <PromptStat label="Sacrifice" value={counsel.sacrifice} />
       </div>
-
-      <p className="mt-5 text-sm leading-6 text-amber-100">
-        Original formation reflection inspired by the saint&apos;s spirituality;
-        not a quotation.
-      </p>
     </aside>
   );
 }
 
 function DailyStat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="min-w-20 flex-1 rounded-xl border border-stone-200 bg-white/80 px-3 py-2.5">
-      <p className="text-lg font-semibold leading-none text-stone-950">{value}</p>
-      <p className="mt-1 text-xs font-medium text-stone-500">{label}</p>
+    <div className="min-w-20 flex-1 rounded-xl border border-hairline bg-vellum/80 px-3 py-2.5">
+      <p className="text-lg font-semibold leading-none text-foreground">{value}</p>
+      <p className="mt-1 text-xs font-medium text-muted">{label}</p>
     </div>
   );
 }
 
 function WeeklyStat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-xl border border-stone-300 bg-white/80 p-3">
-      <p className="text-2xl font-semibold leading-none text-stone-950">{value}</p>
-      <p className="mt-2 text-xs font-medium text-stone-500">{label}</p>
+    <div className="rounded-xl border border-hairline bg-vellum/80 p-3">
+      <p className="text-2xl font-semibold leading-none text-foreground">{value}</p>
+      <p className="mt-2 text-xs font-medium text-muted">{label}</p>
     </div>
   );
 }
@@ -752,8 +741,8 @@ function TabButton({
       className={[
         "min-h-11 rounded-lg border text-sm font-semibold transition",
         active
-          ? "border-emerald-950 bg-emerald-950 text-amber-50 shadow-sm"
-          : "border-transparent bg-transparent text-stone-700 hover:bg-white hover:text-emerald-950",
+          ? "border-sanctuary-night bg-sanctuary-night text-vellum shadow-sm"
+          : "border-transparent bg-transparent text-muted hover:bg-vellum hover:text-ecclesial-green",
       ].join(" ")}
       id={id}
       onClick={onClick}
@@ -769,8 +758,10 @@ function TabButton({
 function PromptStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="px-0 sm:px-4">
-      <p className="text-xs font-semibold uppercase text-amber-200">{label}</p>
-      <p className="mt-2 text-sm leading-6 text-amber-50">{value}</p>
+      <p className="text-xs font-semibold uppercase text-[var(--gilt-light)]">
+        {label}
+      </p>
+      <p className="mt-2 text-sm leading-6 text-vellum">{value}</p>
     </div>
   );
 }
@@ -1093,14 +1084,14 @@ function formatStatus(status: HabitStatus) {
   }
 }
 
-function getFormationSaveLabel(state: SaveState, mode: SaveMode) {
+function getFormationSaveLabel(state: SaveState) {
   if (state === "saving") {
-    return "Saving changes";
+    return "Saving";
   }
 
   if (state === "saved") {
-    return mode === "account" ? "Account saved" : "Device saved";
+    return "Saved";
   }
 
-  return mode === "account" ? "Account storage" : "Device storage";
+  return "";
 }

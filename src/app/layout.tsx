@@ -1,14 +1,20 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { SiteNavigation } from "@/components/site-navigation";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  applicationName: "Sanctum Council",
   title: {
     default: "Sanctum Council",
     template: "%s | Sanctum Council",
   },
   description:
     "A digital oratory for Scripture, prayer, fidelity, and Catholic formation.",
+};
+
+export const viewport: Viewport = {
+  colorScheme: "light",
+  themeColor: "#0B1C16",
 };
 
 export default function RootLayout({

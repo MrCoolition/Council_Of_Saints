@@ -24,6 +24,16 @@ export type LoadedScriptureAnchor = ScriptureAnchor & {
 
 const bookCache = new Map<string, Promise<ScriptureBookData>>();
 
+export async function loadScriptureBookData(bookId: string) {
+  const book = getScriptureBook(bookId);
+
+  if (!book) {
+    throw new Error(`Unknown local Scripture book: ${bookId}`);
+  }
+
+  return loadBook(book.fileName);
+}
+
 export async function loadScriptureAnchor(
   anchor: ScriptureAnchor,
 ): Promise<LoadedScriptureAnchor> {

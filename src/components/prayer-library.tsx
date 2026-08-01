@@ -186,8 +186,8 @@ export function PrayerLibrary() {
 
   return (
     <section aria-labelledby="prayer-library-heading" className="space-y-5">
-      <div className="overflow-hidden rounded-xl border border-stone-300 bg-[var(--panel)] shadow-sm">
-        <div className="grid gap-5 border-b border-stone-200 p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+      <div className="overflow-hidden rounded-xl border border-hairline bg-[var(--panel)] shadow-sm">
+        <div className="grid gap-5 border-b border-hairline p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div>
             <div className="flex items-center gap-2 text-[var(--accent)]">
               <SlidersHorizontal aria-hidden className="size-4" />
@@ -196,21 +196,12 @@ export function PrayerLibrary() {
               </p>
             </div>
             <h2
-              className="mt-2 text-2xl font-semibold text-stone-950 sm:text-3xl"
+              className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl"
               id="prayer-library-heading"
             >
               Prayer & devotion library
             </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-              Search a phrase, browse by spiritual need, or keep a short
-              personal collection for quick return.
-            </p>
           </div>
-
-          <p className="flex items-center gap-2 text-xs text-stone-500">
-            <Star aria-hidden className="size-4 text-amber-700" />
-            Favorites are saved only on this device.
-          </p>
         </div>
 
         <div className="space-y-4 p-5 sm:p-6">
@@ -220,11 +211,11 @@ export function PrayerLibrary() {
             </label>
             <Search
               aria-hidden
-              className="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-stone-500"
+              className="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-muted"
             />
             <input
               aria-controls="prayer-library-results"
-              className="h-12 w-full rounded-lg border border-stone-300 bg-white pl-11 pr-12 text-base text-stone-950 placeholder:text-stone-500 focus:border-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-900/15"
+              className="h-12 w-full rounded-lg border border-hairline bg-vellum pl-11 pr-12 text-base text-foreground placeholder:text-muted focus:border-ecclesial-green focus:outline-none focus:ring-2 focus:ring-ecclesial-green/15"
               id="prayer-library-search"
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search “mercy,” “morning,” “Holy Spirit”…"
@@ -234,7 +225,7 @@ export function PrayerLibrary() {
             {query ? (
               <button
                 aria-label="Clear search"
-                className="absolute right-1.5 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-md text-stone-500 transition hover:bg-stone-100 hover:text-stone-950"
+                className="absolute right-1.5 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-md text-muted transition hover:bg-[var(--panel-soft)] hover:text-foreground"
                 onClick={() => setQuery("")}
                 type="button"
               >
@@ -271,7 +262,7 @@ export function PrayerLibrary() {
           </div>
 
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-stone-500">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted">
               Category
             </p>
             <div
@@ -302,7 +293,7 @@ export function PrayerLibrary() {
       <div className="flex min-h-11 items-center justify-between gap-4">
         <p
           aria-live="polite"
-          className="text-sm font-semibold text-stone-700"
+          className="text-sm font-semibold text-muted"
           role="status"
         >
           {filteredItems.length}{" "}
@@ -310,7 +301,7 @@ export function PrayerLibrary() {
         </p>
         {filtersActive ? (
           <button
-            className="inline-flex min-h-10 items-center gap-2 rounded-md px-3 text-sm font-semibold text-[var(--accent)] transition hover:bg-red-50"
+            className="inline-flex min-h-10 items-center gap-2 rounded-md px-3 text-sm font-semibold text-[var(--accent)] transition hover:bg-oxblood/5"
             onClick={clearFilters}
             type="button"
           >
@@ -370,8 +361,8 @@ function ScopeButton({
       className={[
         "inline-flex min-h-11 items-center gap-2 rounded-lg border px-3.5 text-sm font-semibold transition",
         active
-          ? "border-emerald-950 bg-emerald-950 text-amber-50 shadow-sm"
-          : "border-stone-300 bg-white text-stone-700 hover:border-emerald-900 hover:text-emerald-950",
+          ? "border-sanctuary-night bg-sanctuary-night text-vellum shadow-sm"
+          : "border-hairline bg-vellum text-muted hover:border-ecclesial-green hover:text-ecclesial-green",
       ].join(" ")}
       onClick={onClick}
       type="button"
@@ -380,7 +371,9 @@ function ScopeButton({
       <span
         className={[
           "rounded-full px-1.5 py-0.5 font-mono text-[0.65rem]",
-          active ? "bg-emerald-800 text-amber-100" : "bg-stone-100 text-stone-500",
+          active
+            ? "bg-ecclesial-green text-[var(--gilt-light)]"
+            : "bg-parchment text-muted",
         ].join(" ")}
       >
         {count}
@@ -404,8 +397,8 @@ function CategoryButton({
       className={[
         "shrink-0 rounded-full border px-3.5 text-sm font-semibold transition",
         active
-          ? "border-[#861f2d] bg-[#861f2d] text-white"
-          : "border-stone-300 bg-white text-stone-700 hover:border-[#861f2d] hover:text-[#861f2d]",
+          ? "border-oxblood bg-oxblood text-vellum"
+          : "border-hairline bg-vellum text-muted hover:border-oxblood hover:text-oxblood",
       ].join(" ")}
       onClick={onClick}
       type="button"
@@ -431,8 +424,8 @@ function FavoriteButton({
       className={[
         "flex size-10 shrink-0 items-center justify-center rounded-full border transition",
         active
-          ? "border-amber-600 bg-amber-100 text-amber-800"
-          : "border-stone-300 bg-white text-stone-500 hover:border-amber-600 hover:text-amber-800",
+          ? "border-gilt bg-gilt/25 text-oxblood"
+          : "border-hairline bg-vellum text-muted hover:border-gilt hover:text-oxblood",
       ].join(" ")}
       onClick={onClick}
       title={active ? "Remove from favorites" : "Add to favorites"}
@@ -453,9 +446,9 @@ function PrayerCard({
   prayer: Prayer;
 }) {
   return (
-    <article className="self-start overflow-hidden rounded-xl border border-stone-300 bg-[var(--panel)] shadow-sm transition hover:border-stone-400">
-      <div className="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/80 px-5 py-3">
-        <span className="inline-flex min-h-7 items-center rounded-full bg-emerald-950 px-2.5 text-[0.68rem] font-bold uppercase tracking-wide text-amber-100">
+    <article className="self-start overflow-hidden rounded-xl border border-hairline bg-[var(--panel)] shadow-sm transition hover:border-gilt">
+      <div className="flex items-center justify-between gap-3 border-b border-hairline bg-[var(--panel-soft)] px-5 py-3">
+        <span className="inline-flex min-h-7 items-center rounded-full bg-sanctuary-night px-2.5 text-[0.68rem] font-bold uppercase tracking-wide text-[var(--gilt-light)]">
           Traditional prayer
         </span>
         <FavoriteButton
@@ -466,19 +459,19 @@ function PrayerCard({
       </div>
 
       <details className="group">
-        <summary className="grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-5 transition hover:bg-amber-50/60 sm:px-6">
+        <summary className="grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-5 transition hover:bg-gilt/10 sm:px-6">
           <span>
             <span className="block text-xs font-bold uppercase tracking-wide text-[var(--accent)]">
               {prayer.category}
             </span>
-            <span className="mt-1.5 block font-serif text-2xl font-semibold leading-tight text-stone-950">
+            <span className="mt-1.5 block font-serif text-2xl font-semibold leading-tight text-foreground">
               {prayer.title}
             </span>
-            <span className="mt-2 block text-sm leading-6 text-stone-600">
+            <span className="mt-2 block text-sm leading-6 text-muted">
               {prayer.summary}
             </span>
           </span>
-          <span className="flex size-10 items-center justify-center rounded-full border border-stone-300 bg-white text-emerald-950">
+          <span className="flex size-10 items-center justify-center rounded-full border border-hairline bg-vellum text-ecclesial-green">
             <ChevronDown
               aria-hidden
               className="size-5 transition-transform group-open:rotate-180"
@@ -486,31 +479,22 @@ function PrayerCard({
           </span>
         </summary>
 
-        <div className="border-t border-stone-200">
-          <div className="bg-[#fffcf4] px-5 py-6 sm:px-7 sm:py-7">
-            <div className="space-y-4 font-serif text-lg leading-8 text-stone-800">
+        <div className="border-t border-hairline">
+          <div className="bg-vellum px-5 py-6 sm:px-7 sm:py-7">
+            <div className="space-y-4 font-serif text-lg leading-8 text-foreground">
               {prayer.text.map((paragraph, index) => (
                 <p key={`${prayer.slug}:${index}`}>{paragraph}</p>
               ))}
             </div>
           </div>
 
-          <dl className="grid gap-4 border-t border-stone-200 bg-white px-5 py-5 text-sm sm:px-6">
+          <dl className="grid gap-4 border-t border-hairline bg-vellum px-5 py-5 text-sm sm:px-6">
             <div className="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-2.5">
-              <Clock aria-hidden className="mt-0.5 size-4 text-amber-700" />
+              <Clock aria-hidden className="mt-0.5 size-4 text-oxblood" />
               <div>
-                <dt className="font-semibold text-stone-950">When to pray</dt>
-                <dd className="mt-1 leading-6 text-stone-600">
+                <dt className="font-semibold text-foreground">When to pray</dt>
+                <dd className="mt-1 leading-6 text-muted">
                   {prayer.whenToPray}
-                </dd>
-              </div>
-            </div>
-            <div className="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-2.5">
-              <BookOpen aria-hidden className="mt-0.5 size-4 text-amber-700" />
-              <div>
-                <dt className="font-semibold text-stone-950">Text note</dt>
-                <dd className="mt-1 leading-6 text-stone-600">
-                  {prayer.source}
                 </dd>
               </div>
             </div>
@@ -531,11 +515,11 @@ function GuideCard({
   onFavorite: () => void;
 }) {
   return (
-    <article className="self-start overflow-hidden rounded-xl border border-[#c8a65b] bg-[var(--panel)] shadow-sm transition hover:border-amber-700">
-      <div className="flex items-center justify-between gap-3 border-b border-[#e1cc98] bg-[#fff5d9] px-5 py-3">
-        <span className="inline-flex min-h-7 items-center gap-1.5 rounded-full bg-[#861f2d] px-2.5 text-[0.68rem] font-bold uppercase tracking-wide text-white">
+    <article className="self-start overflow-hidden rounded-xl border border-gilt bg-[var(--panel)] shadow-sm transition hover:border-oxblood">
+      <div className="flex items-center justify-between gap-3 border-b border-gilt/50 bg-gilt/20 px-5 py-3">
+        <span className="inline-flex min-h-7 items-center gap-1.5 rounded-full bg-oxblood px-2.5 text-[0.68rem] font-bold uppercase tracking-wide text-vellum">
           <Compass aria-hidden className="size-3.5" />
-          Original formation guide
+          Prayer guide
         </span>
         <FavoriteButton
           active={favorite}
@@ -545,23 +529,23 @@ function GuideCard({
       </div>
 
       <details className="group">
-        <summary className="grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-5 transition hover:bg-amber-50/60 sm:px-6">
+        <summary className="grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-5 transition hover:bg-gilt/10 sm:px-6">
           <span>
             <span className="block text-xs font-bold uppercase tracking-wide text-[var(--accent)]">
               {guide.eyebrow}
             </span>
-            <span className="mt-1.5 block font-serif text-2xl font-semibold leading-tight text-stone-950">
+            <span className="mt-1.5 block font-serif text-2xl font-semibold leading-tight text-foreground">
               {guide.title}
             </span>
-            <span className="mt-2 block text-sm leading-6 text-stone-600">
+            <span className="mt-2 block text-sm leading-6 text-muted">
               {guide.summary}
             </span>
-            <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-900">
+            <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-ecclesial-green">
               <Clock aria-hidden className="size-4" />
               {guide.duration}
             </span>
           </span>
-          <span className="flex size-10 items-center justify-center rounded-full border border-[#c8a65b] bg-[#fff8e7] text-emerald-950">
+          <span className="flex size-10 items-center justify-center rounded-full border border-gilt bg-gilt/15 text-ecclesial-green">
             <ChevronDown
               aria-hidden
               className="size-5 transition-transform group-open:rotate-180"
@@ -569,15 +553,10 @@ function GuideCard({
           </span>
         </summary>
 
-        <div className="border-t border-[#e1cc98] bg-[#fffcf4] px-5 py-6 sm:px-6">
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950">
-            <p className="font-bold uppercase tracking-wide">Authorship note</p>
-            <p className="mt-1">{guide.provenance}</p>
-          </div>
-
+        <div className="border-t border-gilt/50 bg-vellum px-5 py-6 sm:px-6">
           {guide.pastoralNote ? (
-            <div className="mt-3 rounded-lg border border-red-200 bg-red-50/70 px-4 py-3 text-sm leading-6 text-red-950">
-              <p className="font-semibold">Use this guide wisely</p>
+            <div className="rounded-lg border border-oxblood/25 bg-oxblood/5 px-4 py-3 text-sm leading-6 text-oxblood">
+              <p className="font-semibold">Pastoral counsel</p>
               <p className="mt-1">{guide.pastoralNote}</p>
             </div>
           ) : null}
@@ -585,17 +564,17 @@ function GuideCard({
           <ol className="mt-5 space-y-3">
             {guide.steps.map((step) => (
               <li
-                className="rounded-lg border border-stone-200 bg-white p-4"
+                className="rounded-lg border border-hairline bg-vellum p-4"
                 key={`${guide.slug}:${step.title}`}
               >
-                <h3 className="font-serif text-lg font-semibold text-stone-950">
+                <h3 className="font-serif text-lg font-semibold text-foreground">
                   {step.title}
                 </h3>
-                <p className="mt-2 text-sm leading-6 text-stone-700">
+                <p className="mt-2 text-sm leading-6 text-muted">
                   {step.instruction}
                 </p>
                 {step.scripture ? (
-                  <p className="mt-3 inline-flex items-start gap-2 rounded-md bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold leading-5 text-emerald-950">
+                  <p className="mt-3 inline-flex items-start gap-2 rounded-md bg-ecclesial-green/10 px-2.5 py-1.5 text-xs font-semibold leading-5 text-ecclesial-green">
                     <BookOpen aria-hidden className="mt-0.5 size-3.5 shrink-0" />
                     {step.scripture}
                   </p>
@@ -617,24 +596,24 @@ function LibraryEmptyState({
   onClear: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-dashed border-stone-400 bg-[var(--panel)] px-6 py-12 text-center">
-      <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-emerald-950 text-amber-100">
+    <div className="rounded-xl border border-dashed border-hairline bg-[var(--panel)] px-6 py-12 text-center">
+      <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-sanctuary-night text-[var(--gilt-light)]">
         {favoritesEmpty ? (
           <Star aria-hidden className="size-5" />
         ) : (
           <Search aria-hidden className="size-5" />
         )}
       </span>
-      <h3 className="mt-4 font-serif text-2xl font-semibold text-stone-950">
+      <h3 className="mt-4 font-serif text-2xl font-semibold text-foreground">
         {favoritesEmpty ? "Your prayer shelf is ready" : "No matching resources"}
       </h3>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-stone-600">
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">
         {favoritesEmpty
           ? "Use the star on any prayer or guide to keep a small collection close at hand."
           : "Try a broader word, choose another category, or return to the complete library."}
       </p>
       <button
-        className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-950 px-4 text-sm font-semibold text-amber-50 transition hover:bg-emerald-900"
+        className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-lg bg-sanctuary-night px-4 text-sm font-semibold text-vellum transition hover:bg-ecclesial-green"
         onClick={onClear}
         type="button"
       >

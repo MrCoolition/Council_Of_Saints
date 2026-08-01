@@ -70,9 +70,11 @@ const textSizeClasses: Record<TextSize, string> = {
 
 export function ScriptureReader({
   initialPassage = null,
+  initialBookData = null,
   returnSource = null,
 }: {
   initialPassage?: ScripturePassage | null;
+  initialBookData?: ScriptureBookData | null;
   returnSource?: ScriptureReturnSource | null;
 }) {
   const [location, setLocation] = useState<ScriptureLocation>(() =>
@@ -83,7 +85,14 @@ export function ScriptureReader({
         }
       : defaultLocation,
   );
-  const [resource, setResource] = useState<ReaderResource | null>(null);
+  const [resource, setResource] = useState<ReaderResource | null>(() =>
+    initialBookData
+      ? {
+          bookId: initialPassage?.bookId ?? defaultLocation.bookId,
+          data: initialBookData,
+        }
+      : null,
+  );
   const [failure, setFailure] = useState<ReaderFailure | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [bookFilter, setBookFilter] = useState("");
@@ -203,13 +212,13 @@ export function ScriptureReader({
         });
 
         if (!response.ok) {
-          throw new Error(`The local text returned ${response.status}.`);
+          throw new Error(`Scripture could not be opened (${response.status}).`);
         }
 
         const data: unknown = await response.json();
 
         if (!isScriptureBookData(data)) {
-          throw new Error("The local book file has an unexpected format.");
+          throw new Error("This book could not be opened.");
         }
 
         if (!controller.signal.aborted) {
@@ -228,7 +237,7 @@ export function ScriptureReader({
           message:
             error instanceof Error
               ? error.message
-              : "The local Scripture text could not be opened.",
+              : "Scripture could not be opened.",
         });
       }
     }
@@ -396,7 +405,7 @@ export function ScriptureReader({
   const activeFeedback = missingTargetRange
     ? {
         tone: "error" as const,
-        message: `${formatPassageVerseLabel(selectedRange)} is not fully present in this local chapter file.`,
+        message: `${formatPassageVerseLabel(selectedRange)} is unavailable in this chapter.`,
       }
     : referenceFeedback;
 
@@ -406,14 +415,14 @@ export function ScriptureReader({
         Scripture reader
       </h2>
 
-      <div className="rounded-lg border border-stone-300 bg-[var(--panel)] p-4 shadow-sm sm:p-5">
+      <div className="rounded-lg border border-hairline bg-[var(--panel)] p-4 shadow-sm sm:p-5">
         <form
           className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
           onSubmit={handleReferenceSubmit}
         >
           <div>
             <label
-              className="text-sm font-semibold text-stone-950"
+              className="text-sm font-semibold text-foreground"
               htmlFor="scripture-reference"
             >
               Open a reference
@@ -422,11 +431,11 @@ export function ScriptureReader({
               <div className="relative min-w-0 flex-1">
                 <Search
                   aria-hidden
-                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-stone-500"
+                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted"
                 />
                 <input
                   autoComplete="off"
-                  className="h-11 w-full rounded-md border border-stone-300 bg-white pl-9 pr-3 text-sm text-stone-950 outline-none transition placeholder:text-stone-400 focus:border-emerald-900 focus:ring-2 focus:ring-emerald-900/15"
+                  className="h-11 w-full rounded-md border border-hairline bg-vellum pl-9 pr-3 text-sm text-foreground outline-none transition placeholder:text-muted focus:border-ecclesial-green focus:ring-2 focus:ring-ecclesial-green/15"
                   id="scripture-reference"
                   onChange={(event) => setReferenceInput(event.target.value)}
                   placeholder="John 3:16-18"
@@ -435,7 +444,7 @@ export function ScriptureReader({
                 />
               </div>
               <button
-                className="h-11 shrink-0 rounded-md bg-[var(--accent)] px-4 text-sm font-semibold text-white transition hover:bg-red-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
+                className="h-11 shrink-0 rounded-md bg-[var(--accent)] px-4 text-sm font-semibold text-vellum transition hover:bg-oxblood/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gilt focus-visible:ring-offset-2"
                 type="submit"
               >
                 Open
@@ -443,16 +452,6 @@ export function ScriptureReader({
             </div>
           </div>
 
-          <div className="max-w-xl space-y-1 text-xs leading-5 text-stone-500">
-            <p>
-              Try Genesis 1, Psalm 22, John 3:16-18, or 1 Corinthians 13.
-            </p>
-            <p>
-              This edition follows Vulgate Psalm numbering. Many modern Bibles
-              number some Psalms differently; Psalm 22 here is commonly numbered
-              Psalm 23.
-            </p>
-          </div>
         </form>
 
         <p
@@ -460,8 +459,8 @@ export function ScriptureReader({
           className={[
             "mt-2 min-h-5 text-sm",
             activeFeedback?.tone === "error"
-              ? "font-medium text-red-800"
-              : "text-emerald-800",
+              ? "font-medium text-oxblood"
+              : "text-ecclesial-green",
           ].join(" ")}
           role={activeFeedback?.tone === "error" ? "alert" : "status"}
         >
@@ -471,7 +470,7 @@ export function ScriptureReader({
 
       <button
         aria-expanded={catalogOpen}
-        className="flex h-11 w-full items-center justify-center gap-2 rounded-md border border-stone-300 bg-[var(--panel)] text-sm font-semibold text-stone-900 shadow-sm lg:hidden"
+        className="flex h-11 w-full items-center justify-center gap-2 rounded-md border border-hairline bg-[var(--panel)] text-sm font-semibold text-foreground shadow-sm lg:hidden"
         onClick={() => setCatalogOpen((open) => !open)}
         type="button"
       >
@@ -483,13 +482,13 @@ export function ScriptureReader({
         <aside
           aria-label="Catholic Bible book catalog"
           className={[
-            "rounded-lg border border-stone-300 bg-[var(--panel)] shadow-sm lg:sticky lg:top-20 lg:block lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto",
+            "rounded-lg border border-hairline bg-[var(--panel)] shadow-sm lg:sticky lg:top-20 lg:block lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto",
             catalogOpen ? "block" : "hidden",
           ].join(" ")}
         >
-          <div className="sticky top-0 z-10 border-b border-stone-200 bg-[var(--panel)] p-4">
+          <div className="sticky top-0 z-10 border-b border-hairline bg-[var(--panel)] p-4">
             <label
-              className="text-sm font-semibold text-stone-950"
+              className="text-sm font-semibold text-foreground"
               htmlFor="book-filter"
             >
               Book catalog
@@ -497,11 +496,11 @@ export function ScriptureReader({
             <div className="relative mt-2">
               <Search
                 aria-hidden
-                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-stone-500"
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted"
               />
               <input
                 autoComplete="off"
-                className="h-10 w-full rounded-md border border-stone-300 bg-white pl-9 pr-3 text-sm text-stone-950 outline-none transition placeholder:text-stone-400 focus:border-emerald-900 focus:ring-2 focus:ring-emerald-900/15"
+                className="h-10 w-full rounded-md border border-hairline bg-vellum pl-9 pr-3 text-sm text-foreground outline-none transition placeholder:text-muted focus:border-ecclesial-green focus:ring-2 focus:ring-ecclesial-green/15"
                 id="book-filter"
                 onChange={(event) => setBookFilter(event.target.value)}
                 placeholder="Filter books"
@@ -518,7 +517,7 @@ export function ScriptureReader({
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
                     Saved chapters
                   </h3>
-                  <span className="font-mono text-xs text-stone-500">
+                  <span className="font-mono text-xs text-muted">
                     {bookmarks.length}
                   </span>
                 </div>
@@ -537,7 +536,7 @@ export function ScriptureReader({
 
                     return (
                       <button
-                        className="rounded-md border border-amber-600 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-stone-900 transition hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                        className="rounded-md border border-gilt bg-gilt/15 px-2.5 py-1.5 text-xs font-semibold text-foreground transition hover:bg-gilt/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gilt"
                         key={`${bookmark.bookId}:${bookmark.chapter}`}
                         onClick={() =>
                           openLocation(bookmark, { scroll: true })
@@ -553,12 +552,12 @@ export function ScriptureReader({
             ) : null}
 
             {filteredBooks.length === 0 ? (
-              <div className="rounded-md border border-dashed border-stone-300 p-4 text-center">
-                <p className="text-sm font-semibold text-stone-800">
+              <div className="rounded-md border border-dashed border-hairline p-4 text-center">
+                <p className="text-sm font-semibold text-foreground">
                   No books found
                 </p>
-                <p className="mt-1 text-xs leading-5 text-stone-500">
-                  Try a modern or Original Douay-Rheims book name.
+                <p className="mt-1 text-xs leading-5 text-muted">
+                  Try another book name.
                 </p>
               </div>
             ) : (
@@ -592,15 +591,14 @@ export function ScriptureReader({
 
         <article
           aria-labelledby="current-scripture-heading"
-          className="scroll-mt-20 overflow-hidden rounded-lg border border-stone-300 bg-[var(--panel)] shadow-sm"
+          className="scroll-mt-20 overflow-hidden rounded-lg border border-hairline bg-[var(--panel)] shadow-sm"
           ref={readerRef}
         >
-          <header className="border-b border-emerald-900 bg-emerald-950 p-5 text-amber-50 sm:p-6">
+          <header className="border-b border-ecclesial-green bg-sanctuary-night p-5 text-vellum sm:p-6">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-amber-200">
-                  {getTestamentLabel(selectedBook.testament)} · Original
-                  Douay-Rheims (1582–1610)
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--gilt-light)]">
+                  {getTestamentLabel(selectedBook.testament)}
                 </p>
                 <h2
                   className="mt-2 text-3xl font-semibold leading-tight sm:text-4xl"
@@ -608,21 +606,16 @@ export function ScriptureReader({
                 >
                   {formatScriptureReference(selectedBook, location.chapter)}
                 </h2>
-                {selectedBook.name !== selectedBook.sourceTitle ? (
-                  <p className="mt-2 text-sm text-amber-100">
-                    Original source title: {selectedBook.sourceTitle}
-                  </p>
-                ) : null}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   aria-pressed={isBookmarked}
                   className={[
-                    "inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300",
+                    "inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gilt",
                     isBookmarked
-                      ? "border-amber-200 bg-amber-100 text-emerald-950"
-                      : "border-emerald-700 bg-emerald-900 text-amber-50 hover:border-amber-300",
+                      ? "border-gilt bg-[var(--gilt-light)] text-sanctuary-night"
+                      : "border-ecclesial-green bg-ecclesial-green text-vellum hover:border-gilt",
                   ].join(" ")}
                   onClick={toggleBookmark}
                   type="button"
@@ -639,7 +632,7 @@ export function ScriptureReader({
 
                 <div
                   aria-label="Reading text size"
-                  className="inline-flex items-center rounded-md border border-emerald-700 bg-emerald-900 p-1"
+                  className="inline-flex items-center rounded-md border border-ecclesial-green bg-ecclesial-green p-1"
                   role="group"
                 >
                   <TextSizeButton
@@ -670,7 +663,7 @@ export function ScriptureReader({
             </div>
           </header>
 
-          <div className="border-b border-stone-200 bg-stone-50 p-4 sm:p-5">
+          <div className="border-b border-hairline bg-[var(--panel-soft)] p-4 sm:p-5">
             <div className="grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)_minmax(7rem,0.45fr)_auto] sm:items-end">
               <ChapterButton
                 disabled={!previousLocation}
@@ -687,10 +680,10 @@ export function ScriptureReader({
                 <span className="sm:hidden">Previous</span>
               </ChapterButton>
 
-              <label className="grid gap-1.5 text-xs font-semibold text-stone-600">
+              <label className="grid gap-1.5 text-xs font-semibold text-muted">
                 Book
                 <select
-                  className="h-10 min-w-0 rounded-md border border-stone-300 bg-white px-3 text-sm font-semibold text-stone-950 outline-none focus:border-emerald-900 focus:ring-2 focus:ring-emerald-900/15"
+                  className="h-10 min-w-0 rounded-md border border-hairline bg-vellum px-3 text-sm font-semibold text-foreground outline-none focus:border-ecclesial-green focus:ring-2 focus:ring-ecclesial-green/15"
                   onChange={(event) =>
                     openLocation(
                       { bookId: event.target.value, chapter: 1 },
@@ -707,10 +700,10 @@ export function ScriptureReader({
                 </select>
               </label>
 
-              <label className="grid gap-1.5 text-xs font-semibold text-stone-600">
+              <label className="grid gap-1.5 text-xs font-semibold text-muted">
                 Chapter
                 <select
-                  className="h-10 rounded-md border border-stone-300 bg-white px-3 text-sm font-semibold text-stone-950 outline-none focus:border-emerald-900 focus:ring-2 focus:ring-emerald-900/15"
+                  className="h-10 rounded-md border border-hairline bg-vellum px-3 text-sm font-semibold text-foreground outline-none focus:border-ecclesial-green focus:ring-2 focus:ring-ecclesial-green/15"
                   onChange={(event) =>
                     openLocation(
                       {
@@ -754,20 +747,20 @@ export function ScriptureReader({
             selectedRange?.verseStart !== undefined ? (
               <section
                 aria-label="Focused passage controls"
-                className="mx-auto mb-6 flex max-w-3xl flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between"
+                className="mx-auto mb-6 flex max-w-3xl flex-col gap-3 rounded-xl border border-gilt/60 bg-gilt/15 p-4 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="flex items-start gap-3">
                   <BookOpen
                     aria-hidden
-                    className="mt-0.5 size-5 shrink-0 text-amber-900"
+                    className="mt-0.5 size-5 shrink-0 text-oxblood"
                   />
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.13em] text-amber-900">
+                    <p className="text-xs font-bold uppercase tracking-[0.13em] text-oxblood">
                       {showFullChapter
                         ? "Full chapter · requested verses highlighted"
                         : "Focused passage"}
                     </p>
-                    <p className="mt-1 font-serif text-lg font-semibold text-stone-950">
+                    <p className="mt-1 font-serif text-lg font-semibold text-foreground">
                       {formatScriptureReference(
                         selectedBook,
                         location.chapter,
@@ -778,7 +771,7 @@ export function ScriptureReader({
                   </div>
                 </div>
                 <button
-                  className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-amber-700 bg-white px-3 text-sm font-bold text-amber-950 transition hover:bg-amber-100"
+                  className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-gilt bg-vellum px-3 text-sm font-bold text-oxblood transition hover:bg-gilt/25"
                   onClick={() => setShowFullChapter((current) => !current)}
                   type="button"
                 >
@@ -822,9 +815,9 @@ export function ScriptureReader({
                     <li
                     aria-current={selected ? "true" : undefined}
                     className={[
-                      "grid scroll-mt-24 grid-cols-[2rem_minmax(0,1fr)] gap-3 rounded-md px-2 py-1 outline-none transition focus:bg-amber-50 focus:ring-2 focus:ring-amber-400/70 sm:grid-cols-[2.5rem_minmax(0,1fr)]",
+                      "grid scroll-mt-24 grid-cols-[2rem_minmax(0,1fr)] gap-3 rounded-md px-2 py-1 outline-none transition focus:bg-gilt/15 focus:ring-2 focus:ring-gilt/70 sm:grid-cols-[2.5rem_minmax(0,1fr)]",
                       selected
-                        ? "bg-amber-100 ring-1 ring-inset ring-amber-300"
+                        ? "bg-gilt/20 ring-1 ring-inset ring-gilt/60"
                         : "",
                     ].join(" ")}
                     id={getVerseElementId(
@@ -841,7 +834,7 @@ export function ScriptureReader({
                     >
                       {verse.label}
                     </span>
-                    <span className="text-stone-800">
+                    <span className="text-foreground">
                       <span className="sr-only">Verse {verse.label}. </span>
                       {verse.text}
                     </span>
@@ -852,7 +845,7 @@ export function ScriptureReader({
             )}
           </div>
 
-          <footer className="grid gap-2 border-t border-stone-200 bg-stone-50 p-4 sm:grid-cols-2 sm:p-5">
+          <footer className="grid gap-2 border-t border-hairline bg-[var(--panel-soft)] p-4 sm:grid-cols-2 sm:p-5">
             <FooterChapterButton
               direction="previous"
               location={previousLocation}
@@ -899,7 +892,7 @@ function BookCatalogSection({
         >
           {testament}
         </h3>
-        <span className="font-mono text-xs text-stone-500">
+        <span className="font-mono text-xs text-muted">
           {books.length}
         </span>
       </div>
@@ -911,10 +904,10 @@ function BookCatalogSection({
             <button
               aria-current={selected ? "page" : undefined}
               className={[
-                "min-h-14 rounded-md border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500",
+                "min-h-14 rounded-md border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gilt",
                 selected
-                  ? "border-emerald-950 bg-emerald-950 text-amber-50"
-                  : "border-stone-300 bg-white text-stone-900 hover:border-emerald-800 hover:bg-emerald-50",
+                  ? "border-sanctuary-night bg-sanctuary-night text-vellum"
+                  : "border-hairline bg-vellum text-foreground hover:border-ecclesial-green hover:bg-ecclesial-green/5",
               ].join(" ")}
               key={book.id}
               onClick={() => onOpen(book)}
@@ -926,13 +919,10 @@ function BookCatalogSection({
               <span
                 className={[
                   "mt-0.5 block text-xs leading-4",
-                  selected ? "text-amber-100" : "text-stone-500",
+                  selected ? "text-[var(--gilt-light)]" : "text-muted",
                 ].join(" ")}
               >
                 {book.chapters} {book.chapters === 1 ? "chapter" : "chapters"}
-                {book.name !== book.sourceTitle
-                  ? ` · ${book.sourceTitle}`
-                  : ""}
               </span>
             </button>
           );
@@ -960,8 +950,8 @@ function TextSizeButton({
       className={[
         "flex size-8 items-center justify-center rounded text-sm transition",
         active
-          ? "bg-amber-100 text-emerald-950"
-          : "text-amber-50 hover:bg-emerald-800",
+          ? "bg-[var(--gilt-light)] text-sanctuary-night"
+          : "text-vellum hover:bg-ecclesial-green",
       ].join(" ")}
       onClick={onClick}
       title={label}
@@ -986,7 +976,7 @@ function ChapterButton({
   return (
     <button
       aria-label={label}
-      className="inline-flex h-10 items-center justify-center gap-1 rounded-md border border-stone-300 bg-white px-3 text-sm font-semibold text-stone-800 transition hover:border-emerald-900 hover:text-emerald-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400"
+      className="inline-flex h-10 items-center justify-center gap-1 rounded-md border border-hairline bg-vellum px-3 text-sm font-semibold text-foreground transition hover:border-ecclesial-green hover:text-ecclesial-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gilt disabled:cursor-not-allowed disabled:bg-parchment disabled:text-muted"
       disabled={disabled}
       onClick={onClick}
       title={label}
@@ -1015,7 +1005,7 @@ function FooterChapterButton({
   return (
     <button
       className={[
-        "group flex min-h-16 items-center gap-3 rounded-md border border-stone-300 bg-white px-4 py-3 text-left transition hover:border-emerald-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400",
+        "group flex min-h-16 items-center gap-3 rounded-md border border-hairline bg-vellum px-4 py-3 text-left transition hover:border-ecclesial-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gilt disabled:cursor-not-allowed disabled:bg-parchment disabled:text-muted",
         direction === "next" ? "sm:flex-row-reverse sm:text-right" : "",
       ].join(" ")}
       disabled={!location}
@@ -1028,10 +1018,10 @@ function FooterChapterButton({
         <ChevronRight aria-hidden className="size-5 shrink-0" />
       )}
       <span className="min-w-0 flex-1">
-        <span className="block text-xs font-semibold uppercase text-stone-500">
+        <span className="block text-xs font-semibold uppercase text-muted">
           {direction === "previous" ? "Previous chapter" : "Next chapter"}
         </span>
-        <span className="mt-1 block truncate text-sm font-semibold text-stone-900">
+        <span className="mt-1 block truncate text-sm font-semibold text-foreground">
           {label}
         </span>
       </span>
@@ -1053,8 +1043,8 @@ function ReaderLoadingState({ reference }: { reference: string }) {
             className="grid animate-pulse grid-cols-[2rem_1fr] gap-3"
             key={`${width}:${index}`}
           >
-            <span className="h-4 rounded bg-stone-200" />
-            <span className={`h-6 rounded bg-stone-200 ${width}`} />
+            <span className="h-4 rounded bg-hairline" />
+            <span className={`h-6 rounded bg-hairline ${width}`} />
           </div>
         ),
       )}
@@ -1071,15 +1061,15 @@ function ReaderErrorState({
 }) {
   return (
     <div
-      className="mx-auto max-w-xl rounded-lg border border-red-200 bg-red-50 p-6 text-center"
+      className="mx-auto max-w-xl rounded-lg border border-oxblood/25 bg-oxblood/5 p-6 text-center"
       role="alert"
     >
-      <p className="text-lg font-semibold text-red-950">
+      <p className="text-lg font-semibold text-oxblood">
         This book could not be opened
       </p>
-      <p className="mt-2 text-sm leading-6 text-red-800">{message}</p>
+      <p className="mt-2 text-sm leading-6 text-oxblood">{message}</p>
       <button
-        className="mt-5 inline-flex h-10 items-center gap-2 rounded-md bg-red-900 px-4 text-sm font-semibold text-white transition hover:bg-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-700 focus-visible:ring-offset-2"
+        className="mt-5 inline-flex h-10 items-center gap-2 rounded-md bg-oxblood px-4 text-sm font-semibold text-vellum transition hover:bg-oxblood/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gilt focus-visible:ring-offset-2"
         onClick={onRetry}
         type="button"
       >
@@ -1092,17 +1082,16 @@ function ReaderErrorState({
 
 function ReaderEmptyState({ reference }: { reference: string }) {
   return (
-    <div className="mx-auto max-w-xl rounded-lg border border-dashed border-stone-300 p-8 text-center">
+    <div className="mx-auto max-w-xl rounded-lg border border-dashed border-hairline p-8 text-center">
       <BookOpen
         aria-hidden
         className="mx-auto size-8 text-[var(--accent)]"
       />
-      <p className="mt-4 text-lg font-semibold text-stone-950">
+      <p className="mt-4 text-lg font-semibold text-foreground">
         No verses found
       </p>
-      <p className="mt-2 text-sm leading-6 text-stone-600">
-        {reference} is empty in the local source file. Choose another chapter
-        or book.
+      <p className="mt-2 text-sm leading-6 text-muted">
+        {reference} is unavailable. Choose another chapter or book.
       </p>
     </div>
   );

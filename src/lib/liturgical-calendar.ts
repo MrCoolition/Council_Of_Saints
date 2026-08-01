@@ -96,7 +96,7 @@ export async function getLiturgicalDay(
   const countryCode = normalizeLiturgicalCountry(country);
   const romcal = getRomcal();
   const calendar = await getCalendar(romcal, countryCode, year);
-  const observance = calendar[localDate]?.[0];
+  const observance = selectPrimaryObservance(calendar[localDate]);
 
   if (!observance) {
     throw new Error(
@@ -227,6 +227,8 @@ function summarizeObservance(
   ResolvedLiturgicalDay,
   "localDate" | "country" | "weekdayFallback" | "source" | "settings"
 > {
+  const colorId = getObservanceColorId(observance);
+
   return {
     observanceId: observance.id,
     title: observance.name,
@@ -236,14 +238,26 @@ function summarizeObservance(
     psalterWeek: parsePsalterWeek(observance.cycles.psalterWeek),
     rank: sentenceCase(observance.rankName || observance.rank),
     rankId: observance.rank,
-    color: sentenceCase(
-      firstLabel(observance.colorNames, observance.colors[0]),
-    ),
-    colorId: observance.colors[0],
+    color: sentenceCase(firstLabel(observance.colorNames, colorId)),
+    colorId,
     isHolyDayOfObligation: observance.isHolyDayOfObligation,
     isOptional: observance.isOptional,
     cycles: summarizeCycles(observance),
   };
+}
+
+function getObservanceColorId(observance: RomcalLiturgicalDay) {
+  const colorId = observance.colors[0];
+
+  if (colorId) {
+    return colorId;
+  }
+
+  if (observance.id === "holy_saturday") {
+    return "WHITE";
+  }
+
+  throw new Error(`Romcal returned no liturgical color for ${observance.id}.`);
 }
 
 function summarizeWeekday(
@@ -300,11 +314,27 @@ function parseWeekdayCycle(value: string): 1 | 2 | null {
   return match ? (Number(match[1]) as 1 | 2) : null;
 }
 
-function firstLabel(labels: string[], fallback: string) {
+function selectPrimaryObservance(observances?: RomcalLiturgicalDay[]) {
+  if (!observances?.length) {
+    return undefined;
+  }
+
+  return (
+    observances.find(
+      (observance) => observance.id === "thursday_of_the_lords_supper",
+    ) ?? observances[0]
+  );
+}
+
+function firstLabel(labels: string[], fallback?: string) {
   return labels[0] || sentenceCase(fallback);
 }
 
-function sentenceCase(value: string) {
+function sentenceCase(value?: string) {
+  if (!value) {
+    return "None";
+  }
+
   const normalized = value.trim().replaceAll("_", " ").toLowerCase();
   return normalized
     ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`

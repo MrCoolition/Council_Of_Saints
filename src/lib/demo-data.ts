@@ -134,7 +134,7 @@ export function getDemoTodayPayload(localDate = getLocalIsoDate()): TodayPayload
     breviary: {
       editionId: "sanctum-hours",
       title: "Sanctum Hours",
-      currentVolume: "Complete daily hours",
+      currentVolume: "Seven canonical Hours",
     },
     prayerRule: {
       enabledItems: [

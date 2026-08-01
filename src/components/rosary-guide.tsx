@@ -7,7 +7,6 @@ import {
   Crown,
   Heart,
   RotateCcw,
-  Save,
   Sparkles,
   Sun,
   type LucideIcon,
@@ -16,7 +15,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { RosaryBeads } from "@/components/rosary-beads";
 import {
   buildRosarySteps,
-  FRUIT_GUIDANCE,
   getMysterySet,
   getRecommendedMysterySet,
   getWeekdayName,
@@ -69,7 +67,6 @@ export function RosaryGuide() {
   const [progress, setProgress] =
     useState<ProgressState>(initialProgress);
   const [hydrated, setHydrated] = useState(false);
-  const [wasRestored, setWasRestored] = useState(false);
   const [recommendation, setRecommendation] = useState<TodayRecommendation>({
     setId: "joyful",
     weekday: "Today",
@@ -96,11 +93,6 @@ export function RosaryGuide() {
 
       if (storedProgress) {
         setProgress(storedProgress);
-        setWasRestored(
-          storedProgress.stepIndex > 0 ||
-            storedProgress.repetition > 0 ||
-            storedProgress.finished,
-        );
       } else {
         setProgress((current) => ({
           ...current,
@@ -179,7 +171,6 @@ export function RosaryGuide() {
       repetition: 0,
       finished: false,
     }));
-    setWasRestored(false);
   }
 
   function toggleFatimaPrayer(includeFatimaPrayer: boolean) {
@@ -242,7 +233,6 @@ export function RosaryGuide() {
         repetition: 0,
       };
     });
-    setWasRestored(false);
   }
 
   function goBack() {
@@ -286,7 +276,6 @@ export function RosaryGuide() {
         repetition: Math.max(0, previousStep.repeatTotal - 1),
       };
     });
-    setWasRestored(false);
   }
 
   function reset() {
@@ -296,7 +285,6 @@ export function RosaryGuide() {
       repetition: 0,
       finished: false,
     }));
-    setWasRestored(false);
   }
 
   if (!hydrated) {
@@ -304,16 +292,16 @@ export function RosaryGuide() {
       <section
         aria-busy="true"
         aria-live="polite"
-        className="rounded-xl border border-[#d4c6a7] bg-[#fffaf0] p-8 text-center shadow-sm"
+        className="rounded-xl border border-hairline bg-vellum p-8 text-center shadow-[var(--shadow-soft)]"
       >
         <span
           aria-hidden
-          className="mx-auto flex size-12 items-center justify-center rounded-full bg-[#12372c] text-xl text-[#f4d58a]"
+          className="mx-auto flex size-12 items-center justify-center rounded-full bg-sanctuary-night text-xl text-[var(--gilt-light)]"
         >
           ✠
         </span>
-        <p className="mt-4 text-sm font-semibold text-[#12372c]">
-          Preparing your Rosary and restoring saved progress…
+        <p className="mt-4 text-sm font-semibold text-sanctuary-night">
+          Preparing the Rosary…
         </p>
       </section>
     );
@@ -321,28 +309,20 @@ export function RosaryGuide() {
 
   return (
     <section className="space-y-5" aria-label="Guided Rosary">
-      <div className="rounded-xl border border-[#d4c6a7] bg-[#fffaf0] p-4 shadow-sm sm:p-5">
-        <div className="flex flex-col gap-4 border-b border-[#e2d8c3] pb-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="rounded-xl border border-hairline bg-vellum p-4 shadow-[var(--shadow-soft)] sm:p-5">
+        <div className="flex flex-col gap-4 border-b border-hairline pb-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#7f1d1d]">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-oxblood">
               Choose the mysteries
             </p>
-            <h2 className="mt-2 text-2xl font-semibold text-[#17130b]">
+            <h2 className="mt-2 text-2xl font-semibold text-foreground">
               {recommendation.weekday}: {getMysterySet(recommendation.setId).title}
             </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-              The weekday pattern is a recommendation, not a restriction. Choose
-              any set according to your prayer and the liturgical day.
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
-            <span className="inline-flex items-center gap-2 rounded-full border border-[#c8b68f] bg-white px-3 py-2 text-stone-700">
-              <Save aria-hidden className="size-3.5 text-[#12372c]" />
-              {wasRestored ? "Resumed on this device" : "Progress saves on this device"}
-            </span>
             <button
-              className="inline-flex items-center gap-2 rounded-full border border-[#c8b68f] bg-white px-3 py-2 text-stone-700 transition hover:border-[#7f1d1d] hover:text-[#7f1d1d] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#b9852b]"
+              className="inline-flex items-center gap-2 rounded-full border border-hairline bg-vellum px-3 py-2 text-muted transition hover:border-oxblood hover:text-oxblood focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gilt"
               onClick={reset}
               type="button"
             >
@@ -353,7 +333,7 @@ export function RosaryGuide() {
         </div>
 
         <fieldset
-          aria-describedby="mystery-set-lock-note"
+          aria-describedby={isAtStart ? undefined : "mystery-set-lock-note"}
           className="mt-4"
         >
           <legend className="sr-only">Select a set of Rosary mysteries</legend>
@@ -369,21 +349,21 @@ export function RosaryGuide() {
               />
             ))}
           </div>
-          <p
-            className="mt-3 text-xs leading-5 text-stone-500"
-            id="mystery-set-lock-note"
-          >
-            {isAtStart
-              ? "Mystery selection locks after the first prayer so progress is not lost."
-              : "Mystery selection is locked. Reset to the beginning before changing sets."}
-          </p>
+          {!isAtStart ? (
+            <p
+              className="mt-3 text-xs leading-5 text-muted"
+              id="mystery-set-lock-note"
+            >
+              Reset to change mysteries.
+            </p>
+          ) : null}
         </fieldset>
 
-        <div className="mt-4 flex flex-col gap-2 rounded-lg border border-[#e2d8c3] bg-white/75 p-3 sm:flex-row sm:items-center sm:justify-between">
-          <label className="flex cursor-pointer items-start gap-3 text-sm text-stone-800">
+        <div className="mt-4 flex flex-col gap-2 rounded-lg border border-hairline bg-[var(--panel-soft)] p-3 sm:flex-row sm:items-center sm:justify-between">
+          <label className="flex cursor-pointer items-start gap-3 text-sm text-foreground">
             <input
               checked={progress.includeFatimaPrayer}
-              className="mt-0.5 size-4 accent-[#7f1d1d] disabled:cursor-not-allowed"
+              className="mt-0.5 size-4 accent-oxblood disabled:cursor-not-allowed"
               disabled={!isAtStart}
               onChange={(event) => toggleFatimaPrayer(event.target.checked)}
               type="checkbox"
@@ -392,14 +372,14 @@ export function RosaryGuide() {
               <span className="block font-semibold">
                 Include the optional Fatima prayer after each decade
               </span>
-              <span className="mt-0.5 block text-xs leading-5 text-stone-500">
+              <span className="mt-0.5 block text-xs leading-5 text-muted">
                 {isAtStart
                   ? "This optional invocation adds five guided steps."
                   : "Reset to the beginning before changing this option."}
               </span>
             </span>
           </label>
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#7f1d1d]">
+          <p className="text-xs font-semibold uppercase tracking-wide text-oxblood">
             {selectedSet.days}
           </p>
         </div>
@@ -472,21 +452,21 @@ function MysterySetButton({
     <button
       aria-pressed={selected}
       className={[
-        "relative min-h-24 rounded-lg border p-3 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#b9852b] disabled:cursor-not-allowed disabled:opacity-60",
+        "relative min-h-24 rounded-lg border p-3 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gilt disabled:cursor-not-allowed disabled:opacity-60",
         selected
           ? setAccentClasses[mysterySet.id]
-          : "border-[#d8ccb4] bg-white text-stone-700 hover:border-[#b9852b] hover:bg-[#fffdf7]",
+          : "border-hairline bg-vellum text-muted hover:border-gilt hover:bg-[var(--panel-soft)]",
       ].join(" ")}
       disabled={selectionLocked}
       onClick={() => onSelect(mysterySet.id)}
       type="button"
     >
       <span className="flex items-start justify-between gap-2">
-        <span className="flex size-9 items-center justify-center rounded-full border border-current/20 bg-white/70">
+        <span className="flex size-9 items-center justify-center rounded-full border border-current/20 bg-vellum/70">
           <Icon aria-hidden className="size-4" />
         </span>
         {isRecommended ? (
-          <span className="rounded-full bg-[#12372c] px-2 py-1 text-[0.65rem] font-bold uppercase tracking-wide text-[#fff3cf]">
+          <span className="rounded-full bg-sanctuary-night px-2 py-1 text-[0.65rem] font-bold uppercase tracking-wide text-[var(--gilt-light)]">
             Today
           </span>
         ) : null}
@@ -523,24 +503,24 @@ function GuideStep({
   const isFirstStep = stepIndex === 0 && repetition === 0;
 
   return (
-    <article className="order-1 overflow-hidden rounded-xl border border-[#d4c6a7] bg-[#fffaf0] shadow-sm lg:order-2">
-      <header className="border-b border-[#ddcfb3] bg-[#f5ecd9] px-4 py-4 sm:px-6">
+    <article className="order-1 overflow-hidden rounded-xl border border-hairline bg-vellum shadow-[var(--shadow-soft)] lg:order-2">
+      <header className="border-b border-hairline bg-[var(--panel-soft)] px-4 py-4 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="rounded-full bg-[#7f1d1d] px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-white">
+          <span className="rounded-full bg-oxblood px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-vellum">
             {formatPhase(step.phase)}
           </span>
-          <span className="text-xs font-semibold text-stone-600">
+          <span className="text-xs font-semibold text-muted">
             Guided step {stepIndex + 1} of {totalSteps}
           </span>
         </div>
         <div className="mt-4 flex items-center gap-3">
           <progress
             aria-label={`Rosary ${progressPercent}% complete`}
-            className="h-2 w-full accent-[#7f1d1d]"
+            className="h-2 w-full accent-oxblood"
             max={100}
             value={progressPercent}
           />
-          <span className="w-10 text-right text-xs font-bold text-[#7f1d1d]">
+          <span className="w-10 text-right text-xs font-bold text-oxblood">
             {progressPercent}%
           </span>
         </div>
@@ -555,17 +535,17 @@ function GuideStep({
         </p>
 
         {currentMystery && step.kind === "prayer" ? (
-          <div className="mb-5 border-l-4 border-[#b9852b] bg-[#f8f0df] px-4 py-3">
-            <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#7f1d1d]">
+          <div className="mb-5 border-l-4 border-gilt bg-[var(--panel-soft)] px-4 py-3">
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-oxblood">
               Continue contemplating
             </p>
-            <p className="mt-1 text-sm font-semibold text-[#12372c]">
+            <p className="mt-1 text-sm font-semibold text-ecclesial-green">
               {currentMystery.title} · {currentMystery.scripture}
             </p>
           </div>
         ) : null}
 
-        <p className="text-sm leading-6 text-stone-600">{step.instruction}</p>
+        <p className="text-sm leading-6 text-muted">{step.instruction}</p>
 
         {step.kind === "mystery" && currentMystery ? (
           <MysteryMeditation mystery={currentMystery} />
@@ -575,22 +555,22 @@ function GuideStep({
           <div className="mt-6">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#7f1d1d]">
+                <p className="text-xs font-bold uppercase tracking-[0.15em] text-oxblood">
                   Pray slowly
                 </p>
-                <h2 className="mt-2 font-serif text-3xl font-semibold leading-tight text-[#17130b]">
+                <h2 className="mt-2 font-serif text-3xl font-semibold leading-tight text-foreground">
                   {prayer.title}
                 </h2>
               </div>
               {step.repeatTotal > 1 ? (
-                <span className="rounded-full border border-[#c7b78f] bg-white px-3 py-1.5 text-xs font-bold text-[#12372c]">
+                <span className="rounded-full border border-hairline bg-vellum px-3 py-1.5 text-xs font-bold text-ecclesial-green">
                   {repetition + 1} of {step.repeatTotal}
                   {repetitionLabel ? ` · ${repetitionLabel}` : ""}
                 </span>
               ) : null}
             </div>
 
-            <p className="mt-6 whitespace-pre-line border-y border-[#e1d5bd] py-6 font-serif text-xl leading-9 text-stone-900 sm:text-[1.35rem]">
+            <p className="mt-6 whitespace-pre-line border-y border-hairline py-6 font-serif text-xl leading-9 text-foreground sm:text-[1.35rem]">
               {prayer.text}
             </p>
 
@@ -604,9 +584,9 @@ function GuideStep({
           </div>
         ) : null}
 
-        <div className="mt-7 flex flex-col-reverse gap-3 border-t border-[#e1d5bd] pt-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-7 flex flex-col-reverse gap-3 border-t border-hairline pt-5 sm:flex-row sm:items-center sm:justify-between">
           <button
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[#bcae91] bg-white px-4 text-sm font-semibold text-stone-700 transition hover:border-[#12372c] hover:text-[#12372c] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#b9852b]"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-hairline bg-vellum px-4 text-sm font-semibold text-muted transition hover:border-ecclesial-green hover:text-ecclesial-green disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gilt"
             disabled={isFirstStep}
             onClick={onBack}
             type="button"
@@ -615,7 +595,7 @@ function GuideStep({
             Previous
           </button>
           <button
-            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-md bg-[#7f1d1d] px-5 text-sm font-bold text-white shadow-sm transition hover:bg-[#681818] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#b9852b]"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-md bg-oxblood px-5 text-sm font-bold text-vellum shadow-sm transition hover:bg-liturgical-red focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gilt"
             onClick={onAdvance}
             type="button"
           >
@@ -631,42 +611,32 @@ function GuideStep({
 function MysteryMeditation({ mystery }: { mystery: RosaryMystery }) {
   return (
     <div className="mt-6 space-y-4">
-      <div className="rounded-lg border border-[#cbb98f] bg-white p-5 sm:p-6">
+      <div className="rounded-lg border border-hairline bg-vellum p-5 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#7f1d1d]">
+            <p className="text-xs font-bold uppercase tracking-[0.15em] text-oxblood">
               Scripture anchor
             </p>
-            <h2 className="mt-2 font-serif text-3xl font-semibold leading-tight text-[#17130b]">
+            <h2 className="mt-2 font-serif text-3xl font-semibold leading-tight text-foreground">
               {mystery.title}
             </h2>
-            <p className="mt-2 text-sm font-bold text-[#12372c]">
+            <p className="mt-2 text-sm font-bold text-ecclesial-green">
               {mystery.scripture}
             </p>
           </div>
-          <div className="shrink-0 rounded-lg border border-[#dccca8] bg-[#fff7df] px-4 py-3 sm:max-w-48">
-            <p className="text-[0.65rem] font-bold uppercase tracking-[0.14em] text-[#7f1d1d]">
+          <div className="shrink-0 rounded-lg border border-gilt/45 bg-[var(--panel-soft)] px-4 py-3 sm:max-w-48">
+            <p className="text-[0.65rem] font-bold uppercase tracking-[0.14em] text-oxblood">
               Traditional fruit
             </p>
-            <p className="mt-1 text-sm font-semibold text-[#12372c]">
+            <p className="mt-1 text-sm font-semibold text-ecclesial-green">
               {mystery.fruit}
             </p>
           </div>
         </div>
-        <p className="mt-5 font-serif text-xl leading-8 text-stone-800">
+        <p className="mt-5 font-serif text-xl leading-8 text-foreground">
           {mystery.meditation}
         </p>
-        <p className="mt-4 text-xs leading-5 text-stone-500">
-          {FRUIT_GUIDANCE}
-        </p>
       </div>
-
-      {mystery.typologicalNote ? (
-        <div className="rounded-lg border border-[#b9852b] bg-[#fff3cf] p-4 text-sm leading-6 text-[#52370f]">
-          <p className="font-bold">About this Scripture anchor</p>
-          <p className="mt-1">{mystery.typologicalNote}</p>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -691,10 +661,10 @@ function BeadCounter({
             className={[
               "size-4 rounded-full border transition sm:size-[1.125rem]",
               index < completed
-                ? "border-[#b9852b] bg-[#b9852b]"
+                ? "border-gilt bg-gilt"
                 : index === current
-                  ? "border-[#7f1d1d] bg-[#fffaf0] ring-2 ring-[#7f1d1d]/20"
-                  : "border-[#b7aa8e] bg-white",
+                  ? "border-oxblood bg-vellum ring-2 ring-oxblood/20"
+                  : "border-hairline bg-vellum",
             ].join(" ")}
             key={`${total}-${index + 1}`}
           />
@@ -716,17 +686,17 @@ function CompletionPanel({
   onBack: () => void;
 }) {
   return (
-    <article className="order-1 flex min-h-[34rem] flex-col items-center justify-center rounded-xl border border-[#b9852b] bg-[#fffaf0] p-6 text-center shadow-sm lg:order-2 sm:p-10">
-      <span className="flex size-16 items-center justify-center rounded-full bg-[#12372c] text-[#f4d58a] shadow-sm">
+    <article className="order-1 flex min-h-[34rem] flex-col items-center justify-center rounded-xl border border-gilt bg-vellum p-6 text-center shadow-[var(--shadow-soft)] lg:order-2 sm:p-10">
+      <span className="flex size-16 items-center justify-center rounded-full bg-sanctuary-night text-[var(--gilt-light)] shadow-sm">
         <Check aria-hidden className="size-8" />
       </span>
-      <p className="mt-6 text-xs font-bold uppercase tracking-[0.18em] text-[#7f1d1d]">
+      <p className="mt-6 text-xs font-bold uppercase tracking-[0.18em] text-oxblood">
         Rosary complete
       </p>
-      <h2 className="mt-3 font-serif text-4xl font-semibold text-[#17130b]">
+      <h2 className="mt-3 font-serif text-4xl font-semibold text-foreground">
         Remain a moment in gratitude.
       </h2>
-      <p className="mt-4 max-w-xl text-base leading-7 text-stone-600">
+      <p className="mt-4 max-w-xl text-base leading-7 text-muted">
         You completed {mysterySet.title.toLowerCase()}
         {includeFatimaPrayer ? " with the optional Fatima prayer" : ""}.
         Entrust your intentions to God and carry the mystery into the next
@@ -734,7 +704,7 @@ function CompletionPanel({
       </p>
       <div className="mt-8 flex w-full max-w-md flex-col gap-3 sm:flex-row">
         <button
-          className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-md border border-[#bcae91] bg-white px-4 text-sm font-semibold text-stone-700 transition hover:border-[#12372c] hover:text-[#12372c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#b9852b]"
+          className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-md border border-hairline bg-vellum px-4 text-sm font-semibold text-muted transition hover:border-ecclesial-green hover:text-ecclesial-green focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gilt"
           onClick={onBack}
           type="button"
         >
@@ -742,7 +712,7 @@ function CompletionPanel({
           Review final prayer
         </button>
         <button
-          className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-md bg-[#7f1d1d] px-4 text-sm font-bold text-white transition hover:bg-[#681818] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#b9852b]"
+          className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-md bg-oxblood px-4 text-sm font-bold text-vellum transition hover:bg-liturgical-red focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gilt"
           onClick={onPrayAgain}
           type="button"
         >
@@ -750,9 +720,6 @@ function CompletionPanel({
           Pray this set again
         </button>
       </div>
-      <p className="mt-6 text-xs text-stone-500">
-        Completion is saved locally on this device until you begin again.
-      </p>
     </article>
   );
 }

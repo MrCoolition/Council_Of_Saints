@@ -1,7 +1,8 @@
 "use client";
 
 import {
-  BookOpen,
+  BookOpenText,
+  Church,
   CircleDot,
   Flame,
   ScrollText,
@@ -19,7 +20,8 @@ type NavigationItem = {
 
 const navigationItems: NavigationItem[] = [
   { href: "/", label: "Today", Icon: Sun },
-  { href: "/scripture", label: "Scripture", Icon: BookOpen },
+  { href: "/mass", label: "Holy Mass", Icon: Church },
+  { href: "/scripture", label: "Scripture", Icon: BookOpenText },
   { href: "/rosary", label: "Rosary", Icon: CircleDot },
   { href: "/prayers", label: "Prayers", Icon: ScrollText },
 ];
@@ -29,20 +31,21 @@ export function SiteNavigation() {
 
   return (
     <>
-      <header className="oratory-header sticky top-0 z-40 border-b border-stone-300/80 bg-[color:var(--background)]/95 backdrop-blur-md">
+      <header className="oratory-header sticky top-0 z-40 border-b backdrop-blur-xl">
         <div className="mx-auto flex min-h-16 w-full max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <Link
-            className="group inline-flex min-h-11 items-center gap-3 rounded-xl pr-2 text-stone-950"
+            aria-label="Sanctum Council home"
+            className="group inline-flex min-h-11 items-center gap-3 rounded-xl pr-2 text-[var(--ink)]"
             href="/"
           >
-            <span className="inline-flex size-10 items-center justify-center rounded-full border border-amber-700/30 bg-emerald-950 text-amber-100 shadow-sm transition group-hover:bg-emerald-900">
+            <span className="sanctuary-mark inline-flex size-10 items-center justify-center rounded-full transition group-hover:-translate-y-0.5 group-hover:bg-[var(--ecclesial-green)]">
               <Flame aria-hidden className="size-5" />
             </span>
             <span className="leading-tight">
               <span className="block font-serif text-lg font-semibold tracking-tight">
                 Sanctum Council
               </span>
-              <span className="hidden text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-stone-500 sm:block">
+              <span className="hidden text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-[var(--muted)] sm:block">
                 A digital oratory
               </span>
             </span>
@@ -63,7 +66,7 @@ export function SiteNavigation() {
 
       <nav
         aria-label="Mobile primary"
-        className="mobile-oratory-nav fixed inset-x-0 bottom-0 z-50 grid grid-cols-4 border-t border-stone-300/90 bg-[color:var(--panel)]/95 px-2 pt-2 shadow-[0_-12px_32px_rgba(28,26,23,0.08)] backdrop-blur-md md:hidden"
+        className="mobile-oratory-nav fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t px-1.5 pt-2 backdrop-blur-xl md:hidden"
       >
         {navigationItems.map((item) => (
           <NavigationLink
@@ -98,10 +101,10 @@ function NavigationLink({
       <Link
         aria-current={active ? "page" : undefined}
         className={[
-          "relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-2 text-[0.7rem] font-semibold transition",
+          "oratory-nav-link relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border border-transparent px-1 text-[0.65rem] font-semibold transition",
           active
-            ? "bg-emerald-950 text-amber-50"
-            : "text-stone-600 hover:bg-stone-100 hover:text-emerald-950",
+            ? "oratory-nav-link-active"
+            : "hover:-translate-y-0.5",
         ].join(" ")}
         href={item.href}
       >
@@ -115,10 +118,10 @@ function NavigationLink({
     <Link
       aria-current={active ? "page" : undefined}
       className={[
-        "inline-flex min-h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition",
+        "oratory-nav-link inline-flex min-h-11 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition lg:px-4",
         active
-          ? "border-emerald-950 bg-emerald-950 text-amber-50 shadow-sm"
-          : "border-transparent text-stone-600 hover:border-stone-300 hover:bg-white/70 hover:text-emerald-950",
+          ? "oratory-nav-link-active"
+          : "border-transparent hover:-translate-y-0.5",
       ].join(" ")}
       href={item.href}
     >
