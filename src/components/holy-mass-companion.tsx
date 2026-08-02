@@ -3,24 +3,24 @@
 import {
   ArrowDown,
   BookOpen,
-  Check,
   ChevronRight,
   Church,
   Clock3,
   Cross,
   Settings2,
-  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import {
   type CSSProperties,
   type ReactNode,
   useEffect,
+  useId,
   useMemo,
   useState,
   useSyncExternalStore,
 } from "react";
 import {
+  APOSTLES_CREED_TEXT,
   GLORIA_TEXT,
   MASS_ORDER_SECTIONS,
   NICENE_CREED_TEXT,
@@ -28,6 +28,7 @@ import {
   type MassOrderSection,
   type MassPosture,
 } from "@/lib/mass-order";
+import { MassDialogueOrder } from "@/components/mass-dialogue-order";
 import {
   type HolyMassRiteKind,
   resolveSaturdayMassContext,
@@ -35,6 +36,7 @@ import {
   type SaturdayMassOverride,
 } from "@/lib/holy-mass";
 import {
+  getScriptureBook,
   getScriptureHref,
   type ScriptureReturnSource,
 } from "@/lib/scripture";
@@ -273,13 +275,38 @@ const SPECIAL_RITE_SECTIONS: Record<
           id: "vigil-gloria",
           title: "Gloria",
           posture: "Stand",
-          response: GLORIA_TEXT,
+          lines: [{ role: "all", text: GLORIA_TEXT }],
         },
         {
-          id: "epistle-alleluia-gospel",
-          title: "Epistle, Alleluia, and Gospel",
+          id: "vigil-collect",
+          title: "Collect",
+          posture: "Stand",
+          lines: [
+            { role: "priest", text: "Let us pray." },
+            {
+              role: "priest",
+              text: "The priest proclaims the Collect of the Easter Vigil.",
+            },
+            { role: "people", text: "Amen." },
+          ],
+        },
+        {
+          id: "vigil-epistle",
+          title: "Epistle",
+          posture: "Sit",
+          cue: "Receive the apostolic reading and answer: Thanks be to God.",
+        },
+        {
+          id: "vigil-alleluia-gospel",
+          title: "Solemn Alleluia and Gospel",
           posture: "Stand",
           cue: "Rise for the solemn Alleluia and the Gospel of the Resurrection.",
+        },
+        {
+          id: "vigil-homily",
+          title: "Homily",
+          posture: "Sit",
+          cue: "Receive the preaching of the Resurrection.",
         },
       ],
     },
@@ -298,14 +325,18 @@ const SPECIAL_RITE_SECTIONS: Record<
           posture: "Stand",
           cue: "Renounce sin, profess the faith, and receive the blessed water.",
         },
+        {
+          id: "vigil-universal-prayer",
+          title: "Universal Prayer",
+          posture: "Stand",
+          cue: "Join the prayer of the newly baptized and the whole Church.",
+        },
       ],
     },
     {
       id: "vigil-eucharist",
       title: "Liturgy of the Eucharist",
-      items: MASS_ORDER_SECTIONS[2].items.concat(
-        MASS_ORDER_SECTIONS[3].items,
-      ),
+      items: MASS_ORDER_SECTIONS[2].items,
     },
     {
       id: "vigil-dismissal",
@@ -760,27 +791,29 @@ function MassExperience({
           nextSection={massSections[3]}
           section={massSections[2]}
         >
-          <OrderItems items={MASS_ORDER_SECTIONS[2].items} />
-        </RiteSection>
-
-        <RiteSection
-          accent={liturgicalAccent}
-          nextSection={massSections[4]}
-          section={massSections[3]}
-        >
-          <OrderItems items={MASS_ORDER_SECTIONS[3].items} />
+          <OrderItems
+            idPrefix="eucharist"
+            items={MASS_ORDER_SECTIONS[2].items}
+            title="Sacrifice and Sacred Banquet"
+          />
         </RiteSection>
 
         <RiteSection
           accent={liturgicalAccent}
           nextSection={null}
-          section={massSections[4]}
+          section={massSections[3]}
         >
           <OrderItems
+            idPrefix="concluding"
             items={
               celebration.riteKind === "holy-thursday"
                 ? HOLY_THURSDAY_TRANSFER_ITEMS
-                : MASS_ORDER_SECTIONS[4].items
+                : MASS_ORDER_SECTIONS[3].items
+            }
+            title={
+              celebration.riteKind === "holy-thursday"
+                ? "The Sacrament Is Carried to Repose"
+                : "Sent Forth in Peace"
             }
           />
         </RiteSection>
@@ -982,35 +1015,139 @@ function IntroductoryRites({
   riteKind: HolyMassRiteKind;
   sprinklingRite: boolean;
 }) {
-  const collectIndex = items.findIndex((item) => item.id === "collect");
-  const ordered: MassOrderItem[] = items.map((item) =>
-    item.id === "penitential-act" && sprinklingRite
-      ? {
-          ...item,
-          title: "Penitential Act or Sprinkling Rite",
-          cue: "Follow the rite chosen by the celebrant.",
+  const kyrie = items.find((item) => item.id === "kyrie");
+  const ordered: MassOrderItem[] = items
+    .filter((item) => item.id !== "kyrie")
+    .map((item) => {
+      if (item.id !== "penitential-act") {
+        return item;
+      }
+
+      const penitentialVariants = (item.variants ?? []).flatMap((variant) => {
+        const actLines = [...(item.lines ?? []), ...variant.lines];
+        if (variant.id === "form-c") {
+          return [{ ...variant, lines: actLines }];
         }
-      : item,
-  );
-  if (riteKind === "palm-sunday") {
-    ordered.unshift({
-      id: "commemoration-entrance",
-      title: "Commemoration of the Lord’s Entrance",
-      posture: "Stand",
-      cue: "Hold the blessed palm and join the procession or solemn entrance.",
-      response: "Hosanna in the highest.",
+
+        return (kyrie?.variants ?? []).map((kyrieVariant) => ({
+          id: `${variant.id}-${kyrieVariant.id}`,
+          label: `${variant.label} + ${kyrieVariant.label} Kyrie`,
+          lines: [
+            ...actLines,
+            {
+              role: "rubric" as const,
+              text: "The Kyrie follows.",
+            },
+            ...kyrieVariant.lines,
+          ],
+        }));
+      });
+
+      return {
+        ...item,
+        title: sprinklingRite
+          ? "Penitential Act, Kyrie, or Sprinkling Rite"
+          : "Penitential Act and Kyrie",
+        lines: [],
+        defaultVariantId: "form-a-english",
+        variants: sprinklingRite
+          ? [
+              ...penitentialVariants,
+              {
+                id: "sprinkling",
+                label: "Sprinkling Rite",
+                lines: [
+                  {
+                    role: "rubric" as const,
+                    text: "The priest blesses the water and sprinkles the assembly in remembrance of Baptism.",
+                  },
+                  { role: "people" as const, text: "Amen." },
+                  {
+                    role: "all" as const,
+                    text: "Join the appointed antiphon or song while the assembly is sprinkled.",
+                  },
+                ],
+              },
+            ]
+          : penitentialVariants,
+      };
     });
+  if (riteKind === "palm-sunday") {
+    const collect = ordered.find((item) => item.id === "collect");
+    ordered.splice(0, ordered.length, {
+      id: "commemoration-entrance",
+      title: "Commemoration of the Lord's Entrance",
+      posture: "Stand",
+      defaultVariantId: "procession",
+      variants: [
+        {
+          id: "procession",
+          label: "Procession",
+          lines: [
+            {
+              role: "rubric",
+              text: "Gather at the appointed place with palms. The priest greets the people, blesses the branches, and proclaims the prayer.",
+            },
+            { role: "people", text: "And with your spirit." },
+            { role: "people", text: "Amen." },
+            {
+              role: "deacon",
+              text: "The Gospel of the Lord's entrance into Jerusalem is proclaimed.",
+            },
+            { role: "people", text: "Glory to you, O Lord." },
+            { role: "people", text: "Praise to you, Lord Jesus Christ." },
+            {
+              role: "rubric",
+              text: "Join the procession to the church, acclaiming Christ the King. Mass continues with the Collect.",
+            },
+          ],
+        },
+        {
+          id: "solemn-entrance",
+          label: "Solemn Entrance",
+          lines: [
+            {
+              role: "rubric",
+              text: "At the church entrance, hold the blessed palm and join the antiphon. The blessing and Gospel are celebrated without a procession from another place.",
+            },
+            { role: "people", text: "Hosanna in the highest." },
+            {
+              role: "rubric",
+              text: "The ministers enter the sanctuary. Mass continues with the Collect.",
+            },
+          ],
+        },
+        {
+          id: "simple-entrance",
+          label: "Simple Entrance",
+          lines: [
+            {
+              role: "rubric",
+              text: "Join the entrance antiphon and follow the simple entrance used by the parish. Mass continues with the Collect.",
+            },
+            { role: "people", text: "Hosanna in the highest." },
+          ],
+        },
+      ],
+    }, ...(collect ? [collect] : []));
   }
   if (gloria) {
+    const collectIndex = ordered.findIndex((item) => item.id === "collect");
     ordered.splice(collectIndex, 0, {
       id: "gloria",
       title: "Gloria",
       posture: "Stand",
-      response: GLORIA_TEXT,
+      lines: [{ role: "all", text: GLORIA_TEXT }],
     });
   }
 
-  return <OrderItems items={ordered} />;
+  return (
+    <OrderItems
+      idPrefix="introductory"
+      items={ordered}
+      title="Gathered in the Name of the Lord"
+    />
+  );
 }
 
 function LiturgyOfTheWord({
@@ -1023,6 +1160,50 @@ function LiturgyOfTheWord({
     celebration.options.find((option) => option.id === optionId) ??
     celebration.options[0] ??
     null;
+  const wordRites: MassOrderItem[] = [MASS_ORDER_SECTIONS[1].items[0]];
+
+  if (celebration.riteKind === "holy-thursday") {
+    wordRites.push({
+      id: "washing-feet",
+      title: "Washing of Feet (when celebrated)",
+      posture: "Sit",
+      lines: [
+        {
+          role: "rubric",
+          text: "Join the chant and contemplate the Lord's commandment of charity.",
+        },
+      ],
+    });
+  }
+
+  if (celebration.profile.requirements.creed) {
+    wordRites.push({
+      id: "creed",
+      title: "Profession of Faith",
+      posture: "Stand",
+      lines: [
+        {
+          role: "rubric",
+          text: "Bow profoundly at the words of the Incarnation.",
+        },
+      ],
+      defaultVariantId: "nicene",
+      variants: [
+        {
+          id: "nicene",
+          label: "Nicene Creed",
+          lines: [{ role: "all", text: NICENE_CREED_TEXT }],
+        },
+        {
+          id: "apostles",
+          label: "Apostles' Creed",
+          lines: [{ role: "all", text: APOSTLES_CREED_TEXT }],
+        },
+      ],
+    });
+  }
+
+  wordRites.push(MASS_ORDER_SECTIONS[1].items[1]);
 
   return (
     <div className="space-y-8">
@@ -1078,45 +1259,10 @@ function LiturgyOfTheWord({
         </section>
       )}
 
-      <MassOrderCard
-        item={{
-          id: "homily",
-          title: "Homily",
-          posture: "Sit",
-          cue: "Listen and receive the Word in silence.",
-        }}
-      />
-
-      {celebration.riteKind === "holy-thursday" ? (
-        <MassOrderCard
-          item={{
-            id: "washing-feet",
-            title: "Washing of Feet",
-            posture: "Sit",
-            cue: "Join the chant and contemplate the Lord’s commandment of charity.",
-          }}
-        />
-      ) : null}
-
-      {celebration.profile.requirements.creed ? (
-        <MassOrderCard
-          item={{
-            id: "creed",
-            title: "Profession of Faith",
-            posture: "Stand",
-            cue: "Bow at the words of the Incarnation.",
-            response: NICENE_CREED_TEXT,
-          }}
-        />
-      ) : null}
-
-      <MassOrderCard
-        item={{
-          id: "universal-prayer",
-          title: "Universal Prayer",
-          posture: "Stand",
-          cue: "Respond with the invocation announced for each petition.",
-        }}
+      <OrderItems
+        idPrefix="word-response"
+        items={wordRites}
+        title="Receive, Profess, and Pray"
       />
     </div>
   );
@@ -1138,6 +1284,7 @@ function MassReadings({
     <div className="space-y-8">
       <ReadingCard
         after="Thanks be to God."
+        kind="reading"
         posture="Sit"
         returnSource={returnSource}
         selection={option.firstReading}
@@ -1148,6 +1295,7 @@ function MassReadings({
       {requirements.secondReading && option.secondReading ? (
         <ReadingCard
           after="Thanks be to God."
+          kind="reading"
           posture="Sit"
           returnSource={returnSource}
           selection={option.secondReading}
@@ -1155,8 +1303,9 @@ function MassReadings({
       ) : null}
 
       {requirements.sequence !== "none" ? (
-        <MassOrderCard
-          item={{
+        <OrderItems
+          idPrefix="sequence"
+          items={[{
             id: "sequence",
             title: "Sequence",
             posture: "Sit",
@@ -1164,12 +1313,13 @@ function MassReadings({
               requirements.sequence === "required"
                 ? "Join the sequence before the Gospel acclamation."
                 : "Join the sequence when it is used.",
-          }}
+          }]}
         />
       ) : null}
 
       <ReadingCard
         compact
+        kind="acclamation"
         posture="Stand"
         returnSource={returnSource}
         selection={{
@@ -1209,10 +1359,7 @@ function MassReadings({
       {gospel ? (
         <ReadingCard
           after="Praise to you, Lord Jesus Christ."
-          beforeResponses={[
-            { label: "At the greeting", text: "And with your spirit." },
-            { label: "At the announcement", text: "Glory to you, O Lord." },
-          ]}
+          kind="gospel"
           posture="Stand"
           returnSource={returnSource}
           selection={gospel}
@@ -1224,23 +1371,35 @@ function MassReadings({
 
 function ReadingCard({
   after,
-  beforeResponses,
   compact = false,
+  kind,
   posture,
   returnSource,
   selection,
 }: {
   after?: string;
-  beforeResponses?: { label: string; text: string }[];
   compact?: boolean;
+  kind: "reading" | "acclamation" | "gospel";
   posture: MassPosture;
   returnSource: ScriptureReturnSource;
   selection: HolyMassLoadedSelection;
 }) {
+  const scriptureBookId = selection.passages[0]?.bookId ?? null;
+  const gospelBook = getGospelBookName(scriptureBookId);
+  const readingIntroduction = getReadingIntroduction(scriptureBookId);
+  const disclosureId = useId();
+  const [open, setOpen] = useState(selection.title === "First Reading");
+
   return (
     <article className="illuminated-panel overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--panel)] shadow-[0_18px_56px_rgba(11,28,22,0.055)]">
-      <header className="border-b border-[var(--line)] bg-[var(--panel-soft)] px-5 py-5 sm:px-8 sm:py-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <header className="border-b border-[var(--line)] bg-[var(--panel-soft)]">
+        <button
+          aria-controls={disclosureId}
+          aria-expanded={open}
+          className="flex min-h-24 w-full flex-wrap items-center justify-between gap-3 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--liturgical-accent)] sm:px-8 sm:py-6"
+          onClick={() => setOpen((current) => !current)}
+          type="button"
+        >
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.13em] text-[color:var(--liturgical-accent)]">
               {selection.title}
@@ -1249,27 +1408,56 @@ function ReadingCard({
               {selection.displayCitation}
             </h3>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="flex flex-wrap items-center justify-end gap-2">
             <span className="inline-flex min-h-9 items-center rounded-full border border-[var(--line)] bg-[var(--vellum)] px-3 text-[0.68rem] font-bold uppercase tracking-[0.1em] text-[var(--muted)]">
               Douay-Rheims
             </span>
             <Posture posture={posture} />
-          </div>
-        </div>
+            <span className="inline-flex size-10 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--vellum)] text-[color:var(--liturgical-accent)]">
+              <ChevronRight
+                aria-hidden
+                className={`size-4 motion-safe:transition-transform ${open ? "rotate-90" : ""}`}
+              />
+            </span>
+          </span>
+        </button>
       </header>
 
-      <div className={compact ? "px-5 py-6 sm:px-8" : "px-5 py-8 sm:px-10 sm:py-10"}>
-        {beforeResponses?.length ? (
-          <div className="mb-8 space-y-4">
-            {beforeResponses.map((response) => (
-              <PeopleResponse key={response.label} label={response.label}>
-                {response.text}
-              </PeopleResponse>
-            ))}
+      <div
+        className={compact ? "px-5 py-6 sm:px-8" : "px-5 py-8 sm:px-10 sm:py-10"}
+        hidden={!open}
+        id={disclosureId}
+      >
+        {kind === "gospel" ? (
+          <div className="mb-8 space-y-3">
+            <MinisterLine label="Deacon or Priest">
+              The Lord be with you.
+            </MinisterLine>
+            <PeopleResponse label="People">And with your spirit.</PeopleResponse>
+            <MinisterLine label="Deacon or Priest">
+              A reading from the holy Gospel according to {gospelBook}.
+            </MinisterLine>
+            <PeopleResponse label="People">Glory to you, O Lord.</PeopleResponse>
+            <p className="rounded-xl border border-[color:var(--oxblood)]/20 bg-[var(--panel-soft)] px-4 py-3 font-serif text-sm italic leading-6 text-[var(--oxblood)]">
+              Trace the Cross on your forehead, lips, and heart.
+            </p>
+          </div>
+        ) : null}
+
+        {kind === "reading" && readingIntroduction ? (
+          <div className="mb-8">
+            <MinisterLine label="Reader">{readingIntroduction}</MinisterLine>
           </div>
         ) : null}
 
         <div className="space-y-7">
+          <p className="text-[0.68rem] font-bold uppercase tracking-[0.15em] text-[color:var(--liturgical-accent)]">
+            {kind === "gospel"
+              ? "Deacon or Priest"
+              : kind === "acclamation"
+                ? "Cantor and People"
+                : "Reader"}
+          </p>
           {selection.segments.map((segment, segmentIndex) => (
             <div key={`${segment.reference}:${segmentIndex}`}>
               <div
@@ -1290,7 +1478,10 @@ function ReadingCard({
         </div>
 
         {after ? (
-          <div className="mt-8">
+          <div className="mt-8 space-y-3">
+            <MinisterLine label={kind === "gospel" ? "Deacon or Priest" : "Reader"}>
+              {kind === "gospel" ? "The Gospel of the Lord." : "The word of the Lord."}
+            </MinisterLine>
             <PeopleResponse label="People">{after}</PeopleResponse>
           </div>
         ) : null}
@@ -1314,11 +1505,19 @@ function ReadingCard({
 
 function PsalmCard({ psalm }: { psalm: HolyMassLoadedPsalm }) {
   const refrain = psalm.refrains[0] ?? null;
+  const disclosureId = useId();
+  const [open, setOpen] = useState(false);
 
   return (
     <article className="illuminated-panel overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--panel)] shadow-[0_18px_56px_rgba(11,28,22,0.055)]">
-      <header className="border-b border-[var(--line)] bg-[var(--panel-soft)] px-5 py-5 sm:px-8 sm:py-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <header className="border-b border-[var(--line)] bg-[var(--panel-soft)]">
+        <button
+          aria-controls={disclosureId}
+          aria-expanded={open}
+          className="flex min-h-24 w-full flex-wrap items-center justify-between gap-3 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--liturgical-accent)] sm:px-8 sm:py-6"
+          onClick={() => setOpen((current) => !current)}
+          type="button"
+        >
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.13em] text-[color:var(--liturgical-accent)]">
               Responsorial Psalm
@@ -1327,23 +1526,41 @@ function PsalmCard({ psalm }: { psalm: HolyMassLoadedPsalm }) {
               {psalm.displayCitation}
             </h3>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="flex flex-wrap items-center justify-end gap-2">
             <span className="inline-flex min-h-9 items-center rounded-full border border-[var(--line)] bg-[var(--vellum)] px-3 text-[0.68rem] font-bold uppercase tracking-[0.1em] text-[var(--muted)]">
               Douay-Rheims
             </span>
             <Posture posture="Sit" />
-          </div>
-        </div>
+            <span className="inline-flex size-10 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--vellum)] text-[color:var(--liturgical-accent)]">
+              <ChevronRight
+                aria-hidden
+                className={`size-4 motion-safe:transition-transform ${open ? "rotate-90" : ""}`}
+              />
+            </span>
+          </span>
+        </button>
       </header>
-      <div className="px-5 py-8 sm:px-10 sm:py-10">
+      <div
+        className="px-5 py-8 sm:px-10 sm:py-10"
+        hidden={!open}
+        id={disclosureId}
+      >
         {refrain ? (
-          <blockquote className="mb-8 border-l-2 border-[color:var(--liturgical-accent)] pl-5 font-serif text-xl font-semibold italic leading-8 text-[var(--foreground)] sm:text-2xl sm:leading-9">
-            <span className="mr-2 text-[color:var(--liturgical-accent)]">R.</span>
-            {refrain}
-          </blockquote>
+          <div className="mb-8 rounded-2xl border border-[color:var(--gilt)]/45 bg-[var(--vellum)] px-5 py-4 shadow-[inset_4px_0_0_var(--gilt)] sm:px-6">
+            <p className="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-[color:var(--liturgical-accent)]">
+              People
+            </p>
+            <blockquote className="mt-2 font-serif text-xl font-semibold italic leading-8 text-[var(--foreground)] sm:text-2xl sm:leading-9">
+              <span className="mr-2 text-[color:var(--liturgical-accent)]">R.</span>
+              {refrain}
+            </blockquote>
+          </div>
         ) : null}
 
         <div className="space-y-7">
+          <p className="text-[0.68rem] font-bold uppercase tracking-[0.15em] text-[color:var(--liturgical-accent)]">
+            Cantor
+          </p>
           {psalm.segments.map((segment, segmentIndex) => (
             <div
               className="space-y-4 font-serif text-[1.08rem] leading-8 text-[var(--foreground)] sm:text-xl sm:leading-9"
@@ -1368,43 +1585,16 @@ function PsalmCard({ psalm }: { psalm: HolyMassLoadedPsalm }) {
   );
 }
 
-function OrderItems({ items }: { items: readonly MassOrderItem[] }) {
-  return (
-    <ol className="space-y-4">
-      {items.map((item) => (
-        <li key={item.id}>
-          <MassOrderCard item={item} />
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-function MassOrderCard({ item }: { item: MassOrderItem }) {
-  return (
-    <article className="group grid gap-4 rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 transition hover:border-[color:var(--liturgical-accent)]/50 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-6 sm:p-7">
-      <div>
-        <Posture posture={item.posture} />
-      </div>
-      <div>
-        <h3 className="font-serif text-2xl font-semibold text-[var(--foreground)]">
-          {item.title}
-        </h3>
-        {item.cue ? (
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-            {item.cue}
-          </p>
-        ) : null}
-        {item.response ? (
-          <div className="mt-5">
-            <PeopleResponse label={item.responseLabel ?? "People"}>
-              {item.response}
-            </PeopleResponse>
-          </div>
-        ) : null}
-      </div>
-    </article>
-  );
+function OrderItems({
+  idPrefix,
+  items,
+  title,
+}: {
+  idPrefix?: string;
+  items: readonly MassOrderItem[];
+  title?: string;
+}) {
+  return <MassDialogueOrder idPrefix={idPrefix} items={items} title={title} />;
 }
 
 function PeopleResponse({
@@ -1415,11 +1605,30 @@ function PeopleResponse({
   label: string;
 }) {
   return (
-    <div className="border-l-2 border-[color:var(--liturgical-accent)] pl-4 sm:pl-5">
+    <div className="rounded-2xl border border-[color:var(--gilt)]/45 bg-[var(--vellum)] px-5 py-4 shadow-[inset_4px_0_0_var(--gilt)] sm:px-6">
       <p className="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-[color:var(--liturgical-accent)]">
         {label}
       </p>
-      <p className="mt-1 font-serif text-xl font-semibold leading-8 text-[var(--foreground)] sm:text-2xl sm:leading-9">
+      <p className="mt-2 font-serif text-xl font-semibold leading-8 text-[var(--foreground)] sm:text-2xl sm:leading-9">
+        {children}
+      </p>
+    </div>
+  );
+}
+
+function MinisterLine({
+  children,
+  label,
+}: {
+  children: ReactNode;
+  label: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-[color:var(--gilt)]/35 bg-[var(--sanctuary-night)] px-5 py-4 text-[var(--vellum)] shadow-[inset_4px_0_0_var(--gilt)] sm:px-6">
+      <p className="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-[var(--gilt-light)]">
+        {label}
+      </p>
+      <p className="mt-2 font-serif text-lg leading-8 sm:text-xl sm:leading-9">
         {children}
       </p>
     </div>
@@ -1429,16 +1638,94 @@ function PeopleResponse({
 function Posture({ posture }: { posture: MassPosture }) {
   return (
     <span className="inline-flex min-h-9 items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--vellum)] px-3 text-[0.68rem] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">
-      {posture === "Kneel" ? (
-        <Sparkles aria-hidden className="size-3.5 text-[color:var(--liturgical-accent)]" />
-      ) : posture === "Stand" ? (
-        <Church aria-hidden className="size-3.5 text-[color:var(--liturgical-accent)]" />
-      ) : (
-        <Check aria-hidden className="size-3.5 text-[color:var(--liturgical-accent)]" />
-      )}
+      <Church aria-hidden className="size-3.5 text-[color:var(--liturgical-accent)]" />
       {posture}
     </span>
   );
+}
+
+function getGospelBookName(bookId: string | null) {
+  const names: Record<string, string> = {
+    matthew: "Matthew",
+    mark: "Mark",
+    luke: "Luke",
+    john: "John",
+  };
+  return (bookId && names[bookId]) || "the Evangelist";
+}
+
+function getReadingIntroduction(bookId: string | null) {
+  if (!bookId) {
+    return null;
+  }
+
+  const newTestamentIntroductions: Record<string, string> = {
+    acts: "A reading from the Acts of the Apostles.",
+    romans: "A reading from the Letter of Saint Paul to the Romans.",
+    "1-corinthians":
+      "A reading from the first Letter of Saint Paul to the Corinthians.",
+    "2-corinthians":
+      "A reading from the second Letter of Saint Paul to the Corinthians.",
+    galatians: "A reading from the Letter of Saint Paul to the Galatians.",
+    ephesians: "A reading from the Letter of Saint Paul to the Ephesians.",
+    philippians:
+      "A reading from the Letter of Saint Paul to the Philippians.",
+    colossians: "A reading from the Letter of Saint Paul to the Colossians.",
+    "1-thessalonians":
+      "A reading from the first Letter of Saint Paul to the Thessalonians.",
+    "2-thessalonians":
+      "A reading from the second Letter of Saint Paul to the Thessalonians.",
+    "1-timothy":
+      "A reading from the first Letter of Saint Paul to Timothy.",
+    "2-timothy":
+      "A reading from the second Letter of Saint Paul to Timothy.",
+    titus: "A reading from the Letter of Saint Paul to Titus.",
+    philemon: "A reading from the Letter of Saint Paul to Philemon.",
+    hebrews: "A reading from the Letter to the Hebrews.",
+    james: "A reading from the Letter of Saint James.",
+    "1-peter": "A reading from the first Letter of Saint Peter.",
+    "2-peter": "A reading from the second Letter of Saint Peter.",
+    "1-john": "A reading from the first Letter of Saint John.",
+    "2-john": "A reading from the second Letter of Saint John.",
+    "3-john": "A reading from the third Letter of Saint John.",
+    jude: "A reading from the Letter of Saint Jude.",
+    revelation: "A reading from the Book of Revelation.",
+  };
+  if (newTestamentIntroductions[bookId]) {
+    return newTestamentIntroductions[bookId];
+  }
+
+  const book = getScriptureBook(bookId);
+  if (!book || book.testament !== "old") {
+    return null;
+  }
+
+  const prophets = new Set([
+    "isaiah",
+    "jeremiah",
+    "baruch",
+    "ezekiel",
+    "daniel",
+    "hosea",
+    "joel",
+    "amos",
+    "obadiah",
+    "jonah",
+    "micah",
+    "nahum",
+    "habakkuk",
+    "zephaniah",
+    "haggai",
+    "zechariah",
+    "malachi",
+  ]);
+  if (prophets.has(bookId)) {
+    return `A reading from the Book of the Prophet ${book.name}.`;
+  }
+  if (bookId === "song-of-songs") {
+    return "A reading from the Song of Songs.";
+  }
+  return `A reading from the Book of ${book.name}.`;
 }
 
 function getLiturgicalAccent(color: string) {

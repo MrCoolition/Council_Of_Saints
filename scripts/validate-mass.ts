@@ -6,6 +6,10 @@ import {
   resolveSaturdayMassContext,
 } from "../src/lib/holy-mass";
 import {
+  MASS_ORDER_SECTIONS,
+  type MassDialogueLine,
+} from "../src/lib/mass-order";
+import {
   AUGUST_1_2026_US_MASS_READINGS,
   AUGUST_2_2026_US_MASS_READINGS,
   getCuratedUsMassReadingsEntries,
@@ -20,14 +24,124 @@ import { getScriptureBook, type ScripturePassage } from "../src/lib/scripture";
 async function main() {
   validateOfficialUrls();
   validateProfiles();
+  validateMassOrderSchema();
   validateGoldenFixtures();
   validateSaturdayResolver();
   await validateLiturgicalCalendarEdges();
   await validateLocalScriptureCoverage();
 
   console.log(
-    "Validated curated U.S. Mass fixtures, local Douay passages, liturgical profiles, USCCB links, ordinary Saturday resolution, and Paschal calendar edge dates.",
+    "Validated the complete Order of Mass dialogue, curated U.S. Mass fixtures, local Douay passages, liturgical profiles, USCCB links, ordinary Saturday resolution, and Paschal calendar edge dates.",
   );
+}
+
+function validateMassOrderSchema() {
+  assert(
+    JSON.stringify(MASS_ORDER_SECTIONS.map((section) => section.id)) ===
+      JSON.stringify(["entrance", "word", "eucharist", "dismissal"]),
+    "The ordinary Mass must retain its four canonical major rites",
+  );
+
+  const itemIds = new Set<string>();
+  const requiredItems = new Set([
+    "sign-of-the-cross",
+    "greeting",
+    "penitential-act",
+    "kyrie",
+    "collect",
+    "homily",
+    "universal-prayer",
+    "pray-brethren",
+    "preface-dialogue",
+    "sanctus",
+    "eucharistic-prayer",
+    "mystery-of-faith",
+    "great-amen",
+    "our-father",
+    "sign-of-peace",
+    "fraction",
+    "invitation-to-communion",
+    "holy-communion",
+    "prayer-after-communion",
+    "final-blessing",
+    "dismissal",
+  ]);
+
+  for (const section of MASS_ORDER_SECTIONS) {
+    assert(section.items.length > 0, `${section.title} must contain Mass moments`);
+
+    for (const item of section.items) {
+      assert(!itemIds.has(item.id), `Duplicate Order of Mass item id: ${item.id}`);
+      itemIds.add(item.id);
+      assert(item.title.trim().length > 0, `${item.id} needs a title`);
+      validateDialogueLines(item.lines ?? [], item.id);
+
+      if (item.variants) {
+        assert(item.variants.length > 1, `${item.id} choices need multiple forms`);
+        const variantIds = new Set<string>();
+        for (const variant of item.variants) {
+          assert(
+            !variantIds.has(variant.id),
+            `${item.id} has duplicate variant ${variant.id}`,
+          );
+          variantIds.add(variant.id);
+          assert(variant.label.trim().length > 0, `${item.id} variant needs a label`);
+          validateDialogueLines(variant.lines, `${item.id}:${variant.id}`);
+        }
+        assert(
+          !item.defaultVariantId || variantIds.has(item.defaultVariantId),
+          `${item.id} has an invalid default variant`,
+        );
+      }
+
+      requiredItems.delete(item.id);
+    }
+  }
+
+  assert(
+    requiredItems.size === 0,
+    `Order of Mass is missing: ${Array.from(requiredItems).join(", ")}`,
+  );
+
+  const greeting = MASS_ORDER_SECTIONS[0].items.find(
+    (item) => item.id === "greeting",
+  );
+  const penitentialAct = MASS_ORDER_SECTIONS[0].items.find(
+    (item) => item.id === "penitential-act",
+  );
+  const mystery = MASS_ORDER_SECTIONS[2].items.find(
+    (item) => item.id === "mystery-of-faith",
+  );
+  const eucharisticPrayer = MASS_ORDER_SECTIONS[2].items.find(
+    (item) => item.id === "eucharistic-prayer",
+  );
+  const dismissal = MASS_ORDER_SECTIONS[3].items.find(
+    (item) => item.id === "dismissal",
+  );
+
+  assert(greeting?.variants?.length === 3, "All three greetings are required");
+  assert(
+    penitentialAct?.variants?.length === 3,
+    "All three Penitential Acts are required",
+  );
+  assert(
+    mystery?.variants?.length === 3,
+    "All three Memorial Acclamations are required",
+  );
+  assert(
+    eucharisticPrayer?.variants?.length === 4,
+    "All four principal Eucharistic Prayers are required",
+  );
+  assert(dismissal?.variants?.length === 4, "All four dismissals are required");
+}
+
+function validateDialogueLines(
+  lines: readonly MassDialogueLine[],
+  context: string,
+) {
+  for (const line of lines) {
+    assert(line.text.trim().length > 0, `${context} contains an empty dialogue line`);
+  }
 }
 
 async function validateLiturgicalCalendarEdges() {
