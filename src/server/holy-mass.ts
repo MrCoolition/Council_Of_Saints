@@ -9,6 +9,7 @@ import {
 } from "@/lib/holy-mass";
 import { getLiturgicalDay } from "@/lib/liturgical-calendar";
 import {
+  getDouayDisplayCitation,
   getUsccbDailyReadingsUrl,
   getUsMassReadingsForDate,
   type MassReadingOption,
@@ -21,6 +22,10 @@ import {
   type LoadedScriptureSegment,
 } from "@/server/scripture-passages";
 import { getTodayPayload } from "@/server/today";
+import {
+  getUsccbLectionaryForDate,
+  type UsccbLectionaryItem,
+} from "@/server/usccb-lectionary";
 
 export type HolyMassLoadedSelection = {
   title: string;
@@ -56,6 +61,7 @@ export type HolyMassCelebrationView = {
   lectionaryNumbers: number[];
   profile: MassCelebrationProfile;
   officialReadingsUrl: string;
+  massLectionary: UsccbLectionaryItem | null;
   options: HolyMassLoadedOption[];
   riteKind: HolyMassRiteKind;
 };
@@ -126,6 +132,7 @@ export async function getHolyMassPageData(
           rank: "Paschal Triduum",
           liturgicalColor: "White",
           officialReadingsUrl: getUsccbDailyReadingsUrl(today.localDate),
+          massLectionary: null,
           options: [],
           profile: {
             id: "easter-vigil",
@@ -159,9 +166,13 @@ async function loadCelebration(
   const riteKind = getHolyMassRiteKind(day.observanceId, mode);
   const entry = getUsMassReadingsForDate(day.localDate);
   const officialReadingsUrl = getUsccbDailyReadingsUrl(day.localDate);
+  const massLectionaryPromise = getUsccbLectionaryForDate(day.localDate);
 
   if (entry.status === "curated") {
-    const options = await Promise.all(entry.options.map(loadOption));
+    const [options, massLectionary] = await Promise.all([
+      Promise.all(entry.options.map(loadOption)),
+      massLectionaryPromise,
+    ]);
     const profile = entry.observance.profile;
 
     return {
@@ -169,7 +180,7 @@ async function loadCelebration(
       mode,
       localDate: day.localDate,
       dateLabel: formatMassDate(day.localDate),
-      title: entry.observance.title,
+      title: massLectionary?.title ?? entry.observance.title,
       rank: displayRank(entry.observance.rank),
       season: day.season,
       liturgicalColor: displayColor(entry.observance.liturgicalColor),
@@ -177,12 +188,14 @@ async function loadCelebration(
       lectionaryNumbers: [...entry.observance.lectionaryNumbers],
       profile,
       officialReadingsUrl,
+      massLectionary,
       options,
       riteKind,
     };
   }
 
   const requirements = deriveRequirements(day, mode, riteKind);
+  const massLectionary = await massLectionaryPromise;
   const profile: MassCelebrationProfile = {
     id: `${day.localDate}-mass`,
     label: day.rank,
@@ -194,7 +207,7 @@ async function loadCelebration(
     mode,
     localDate: day.localDate,
     dateLabel: formatMassDate(day.localDate),
-    title: day.title,
+    title: massLectionary?.title ?? day.title,
     rank: day.rank,
     season: day.season,
     liturgicalColor: day.color,
@@ -202,6 +215,7 @@ async function loadCelebration(
     lectionaryNumbers: [],
     profile,
     officialReadingsUrl,
+    massLectionary,
     options: [],
     riteKind,
   };
@@ -238,7 +252,7 @@ async function loadSelection(
 
   return {
     title: selection.title,
-    displayCitation: selection.displayCitation,
+    displayCitation: getDouayDisplayCitation(selection),
     passages,
     segments,
   };

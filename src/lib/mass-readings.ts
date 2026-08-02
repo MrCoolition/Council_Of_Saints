@@ -414,6 +414,10 @@ export function getCuratedUsMassReadingsEntries() {
   return [...CURATED_US_MASS_READINGS.values()];
 }
 
+export function getDouayDisplayCitation(selection: MassScriptureSelection) {
+  return selection.douaySource.citation.replace(/^Douay\s+/u, "");
+}
+
 function selection(
   title: string,
   displayCitation: string,

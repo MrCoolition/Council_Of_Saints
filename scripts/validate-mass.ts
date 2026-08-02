@@ -13,6 +13,7 @@ import {
   AUGUST_1_2026_US_MASS_READINGS,
   AUGUST_2_2026_US_MASS_READINGS,
   getCuratedUsMassReadingsEntries,
+  getDouayDisplayCitation,
   getUsMassReadingsForDate,
   getUsccbDailyReadingsUrl,
   JULY_29_2026_US_MASS_READINGS,
@@ -20,18 +21,20 @@ import {
 } from "../src/lib/mass-readings";
 import { getLiturgicalDay } from "../src/lib/liturgical-calendar";
 import { getScriptureBook, type ScripturePassage } from "../src/lib/scripture";
+import { parseUsccbLectionaryFeed } from "../src/lib/usccb-lectionary";
 
 async function main() {
   validateOfficialUrls();
   validateProfiles();
   validateMassOrderSchema();
   validateGoldenFixtures();
+  validateUsccbFeedParser();
   validateSaturdayResolver();
   await validateLiturgicalCalendarEdges();
   await validateLocalScriptureCoverage();
 
   console.log(
-    "Validated the complete Order of Mass dialogue, curated U.S. Mass fixtures, local Douay passages, liturgical profiles, USCCB links, ordinary Saturday resolution, and Paschal calendar edge dates.",
+    "Validated the complete Order of Mass dialogue, curated U.S. Mass fixtures, local Douay passages, liturgical profiles, USCCB links and RSS parsing, ordinary Saturday resolution, and Paschal calendar edge dates.",
   );
 }
 
@@ -203,6 +206,59 @@ function validateOfficialUrls() {
   assert(
     fallback.officialSources[0]?.url.endsWith("/080326"),
     "Metadata-only dates must use the extensionless daily URL",
+  );
+}
+
+function validateUsccbFeedParser() {
+  const syntheticFeed = `Reader wrapper
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+<copyright>Copyright Test Owner. All rights reserved.</copyright>
+<item>
+<title>Test Memorial</title>
+<link>https://bible.usccb.org/bible/readings/080126</link>
+<description>
+&lt;h4&gt;Reading 1 &lt;a href="https://bible.usccb.org/bible/test/1?1 "&gt;Test 1:1&lt;/a&gt;&lt;/h4&gt;
+&lt;div class="poetry"&gt;&lt;p&gt;&lt;span&gt;Line one.&lt;/span&gt;&lt;br&gt;&lt;span&gt;Line &amp;amp; two.&lt;/span&gt;&lt;/p&gt;&lt;/div&gt;
+&lt;h4&gt;Gospel &lt;a href="https://bible.usccb.org/bible/test/2?1 "&gt;Test 2:1&lt;/a&gt;&lt;/h4&gt;
+&lt;div class="poetry"&gt;&lt;p&gt;Gospel line.&lt;/p&gt;&lt;/div&gt;
+</description>
+<pubDate>Sat, 01 Aug 2026 04:30:00 EDT</pubDate>
+</item>
+</channel></rss>
+Reader footer`;
+  const items = parseUsccbLectionaryFeed(syntheticFeed);
+  const item = items[0];
+
+  assert(items.length === 1 && item, "The USCCB RSS parser must load one item");
+  assert(
+    item.localDate === "2026-08-01" && item.title === "Test Memorial",
+    "The USCCB RSS parser must derive the civil date and title",
+  );
+  assert(
+    item.sections.length === 2 &&
+      item.sections[0]?.title === "Reading 1" &&
+      item.sections[0]?.citation === "Test 1:1" &&
+      JSON.stringify(item.sections[0]?.lines) ===
+        JSON.stringify(["Line one.", "Line & two."]),
+    "The USCCB RSS parser must preserve headings, citations, and line breaks",
+  );
+  assert(
+    item.sections.every(
+      (section) =>
+        section.officialUrl?.startsWith("https://bible.usccb.org/") &&
+        section.lines.every((line) => !line.includes("<")),
+    ),
+    "The USCCB RSS parser must emit safe text and official links only",
+  );
+  assert(
+    parseUsccbLectionaryFeed(
+      syntheticFeed.replace(
+        "<copyright>Copyright Test Owner. All rights reserved.</copyright>",
+        "",
+      ),
+    ).length === 0,
+    "The USCCB RSS parser must fail closed without attribution",
   );
 }
 
@@ -500,6 +556,11 @@ function assertPsalm(
   assert(
     selection.douaySource.citation === douayCitation,
     `${displayCitation} must map to ${douayCitation}`,
+  );
+  assert(
+    getDouayDisplayCitation(selection) ===
+      douayCitation.replace(/^Douay\s+/u, ""),
+    `${displayCitation} must show its Douay citation with Douay numbering`,
   );
 }
 

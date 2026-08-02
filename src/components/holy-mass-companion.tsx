@@ -38,8 +38,10 @@ import {
 import {
   getScriptureBook,
   getScriptureHref,
+  parseScriptureReference,
   type ScriptureReturnSource,
 } from "@/lib/scripture";
+import type { UsccbLectionarySection } from "@/lib/usccb-lectionary";
 import type {
   HolyMassCelebrationView,
   HolyMassLoadedOption,
@@ -54,10 +56,22 @@ const PROGRESS_KEY_PREFIX = "sanctum.mass.progress.v1";
 
 type MassSettings = {
   anticipatedCutoff: string;
+  readingTranslation: MassReadingTranslation;
 };
+
+type MassReadingTranslation = "us-lectionary" | "douay-rheims";
+
+const MASS_TRANSLATION_CHOICES: readonly {
+  label: string;
+  value: MassReadingTranslation;
+}[] = [
+  { label: "At Mass (U.S.)", value: "us-lectionary" },
+  { label: "Douay-Rheims", value: "douay-rheims" },
+];
 
 const DEFAULT_SETTINGS: MassSettings = {
   anticipatedCutoff: DEFAULT_ANTICIPATED_CUTOFF,
+  readingTranslation: "us-lectionary",
 };
 
 const MASS_SETTINGS_EVENT = "sanctum:mass-settings";
@@ -471,6 +485,10 @@ export function HolyMassCompanion({
     <MassExperience
       celebration={celebration}
       key={celebration.id}
+      onReadingTranslationChange={(readingTranslation) =>
+        saveMassSettings({ ...settings, readingTranslation })
+      }
+      readingTranslation={settings.readingTranslation}
       saturdayControls={saturdayControls}
     />
   );
@@ -620,9 +638,13 @@ function SpecialLiturgyExperience({
 
 function MassExperience({
   celebration,
+  onReadingTranslationChange,
+  readingTranslation,
   saturdayControls,
 }: {
   celebration: HolyMassCelebrationView;
+  onReadingTranslationChange: (translation: MassReadingTranslation) => void;
+  readingTranslation: MassReadingTranslation;
   saturdayControls: ReactNode;
 }) {
   const massSections = useMemo(
@@ -783,7 +805,11 @@ function MassExperience({
           nextSection={massSections[2]}
           section={massSections[1]}
         >
-          <LiturgyOfTheWord celebration={celebration} />
+          <LiturgyOfTheWord
+            celebration={celebration}
+            onReadingTranslationChange={onReadingTranslationChange}
+            readingTranslation={readingTranslation}
+          />
         </RiteSection>
 
         <RiteSection
@@ -1152,8 +1178,12 @@ function IntroductoryRites({
 
 function LiturgyOfTheWord({
   celebration,
+  onReadingTranslationChange,
+  readingTranslation,
 }: {
   celebration: HolyMassCelebrationView;
+  onReadingTranslationChange: (translation: MassReadingTranslation) => void;
+  readingTranslation: MassReadingTranslation;
 }) {
   const [optionId, setOptionId] = useState(celebration.options[0]?.id ?? "");
   const selectedOption =
@@ -1207,57 +1237,91 @@ function LiturgyOfTheWord({
 
   return (
     <div className="space-y-8">
-      {celebration.options.length > 1 ? (
-        <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-soft)] p-4">
-          <label
-            className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--muted)]"
-            htmlFor="mass-reading-option"
-          >
-            Lectionary
-          </label>
-          <select
-            className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--vellum)] px-4 text-sm font-semibold text-[var(--foreground)]"
-            id="mass-reading-option"
-            onChange={(event) => setOptionId(event.target.value)}
-            value={selectedOption?.id ?? ""}
-          >
-            {celebration.options.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : null}
+      <MassTranslationToggle
+        onChange={onReadingTranslationChange}
+        value={readingTranslation}
+      />
 
-      {selectedOption ? (
-        <MassReadings
-          option={selectedOption}
-          requirements={celebration.profile.requirements}
-          returnSource={
-            celebration.mode === "anticipated" ? "mass-anticipated" : "mass"
-          }
-        />
-      ) : (
-        <section className="illuminated-panel rounded-3xl border border-[var(--line)] bg-[var(--panel)] p-6 text-center sm:p-10">
-          <BookOpen
-            aria-hidden
-            className="mx-auto size-7 text-[color:var(--liturgical-accent)]"
+      <div hidden={readingTranslation !== "us-lectionary"}>
+        {celebration.massLectionary ? (
+          <UsccbMassReadings
+            item={celebration.massLectionary}
+            requirements={celebration.profile.requirements}
           />
-          <h3 className="mt-4 font-serif text-3xl text-[var(--foreground)]">
-            The Word of God
-          </h3>
-          <a
-            className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-full bg-[var(--sanctuary-night)] px-5 text-sm font-bold text-[var(--vellum)]"
-            href={celebration.officialReadingsUrl}
-            rel="noreferrer"
-            target="_blank"
-          >
-            Today&apos;s readings
-            <ChevronRight aria-hidden className="size-4" />
-          </a>
-        </section>
-      )}
+        ) : (
+          <section className="illuminated-panel rounded-3xl border border-[var(--line)] bg-[var(--panel)] p-6 text-center sm:p-10">
+            <BookOpen
+              aria-hidden
+              className="mx-auto size-7 text-[color:var(--liturgical-accent)]"
+            />
+            <h3 className="mt-4 font-serif text-3xl text-[var(--foreground)]">
+              U.S. Lectionary
+            </h3>
+            <a
+              className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-full bg-[var(--sanctuary-night)] px-5 text-sm font-bold text-[var(--vellum)]"
+              href={celebration.officialReadingsUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Open at USCCB
+              <ChevronRight aria-hidden className="size-4" />
+            </a>
+          </section>
+        )}
+      </div>
+
+      <div className="space-y-8" hidden={readingTranslation !== "douay-rheims"}>
+        {celebration.options.length > 1 ? (
+          <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-soft)] p-4">
+            <label
+              className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--muted)]"
+              htmlFor="mass-reading-option"
+            >
+              Lectionary
+            </label>
+            <select
+              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--vellum)] px-4 text-sm font-semibold text-[var(--foreground)]"
+              id="mass-reading-option"
+              onChange={(event) => setOptionId(event.target.value)}
+              value={selectedOption?.id ?? ""}
+            >
+              {celebration.options.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
+        {selectedOption ? (
+          <MassReadings
+            option={selectedOption}
+            requirements={celebration.profile.requirements}
+            returnSource={
+              celebration.mode === "anticipated" ? "mass-anticipated" : "mass"
+            }
+          />
+        ) : (
+          <section className="illuminated-panel rounded-3xl border border-[var(--line)] bg-[var(--panel)] p-6 text-center sm:p-10">
+            <BookOpen
+              aria-hidden
+              className="mx-auto size-7 text-[color:var(--liturgical-accent)]"
+            />
+            <h3 className="mt-4 font-serif text-3xl text-[var(--foreground)]">
+              Douay-Rheims
+            </h3>
+            <button
+              className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-full bg-[var(--sanctuary-night)] px-5 text-sm font-bold text-[var(--vellum)]"
+              onClick={() => onReadingTranslationChange("us-lectionary")}
+              type="button"
+            >
+              Use At Mass (U.S.)
+              <ChevronRight aria-hidden className="size-4" />
+            </button>
+          </section>
+        )}
+      </div>
 
       <OrderItems
         idPrefix="word-response"
@@ -1266,6 +1330,274 @@ function LiturgyOfTheWord({
       />
     </div>
   );
+}
+
+function MassTranslationToggle({
+  onChange,
+  value,
+}: {
+  onChange: (translation: MassReadingTranslation) => void;
+  value: MassReadingTranslation;
+}) {
+  return (
+    <fieldset className="rounded-2xl border border-[color:var(--gilt)]/35 bg-[var(--panel-soft)] p-2 shadow-[0_12px_34px_rgba(11,28,22,0.04)]">
+      <legend className="sr-only">Scripture text</legend>
+      <div className="grid grid-cols-2 gap-2">
+        {MASS_TRANSLATION_CHOICES.map((choice) => {
+          const selected = value === choice.value;
+          return (
+            <label
+              className={[
+                "flex min-h-12 cursor-pointer items-center justify-center rounded-xl border px-3 text-center text-sm font-bold transition focus-within:outline-none focus-within:ring-2 focus-within:ring-[color:var(--liturgical-accent)]",
+                selected
+                  ? "border-[color:var(--gilt)] bg-[var(--sanctuary-night)] text-[var(--vellum)] shadow-[0_10px_24px_rgba(11,28,22,0.14)]"
+                  : "border-transparent bg-[var(--vellum)] text-[var(--muted)] hover:border-[var(--line)] hover:text-[var(--foreground)]",
+              ].join(" ")}
+              key={choice.value}
+            >
+              <input
+                aria-label={
+                  choice.value === "us-lectionary"
+                    ? "At Mass, English used in the United States"
+                    : "Douay-Rheims, traditional English translation"
+                }
+                checked={selected}
+                className="sr-only"
+                name="mass-scripture-translation"
+                onChange={() => onChange(choice.value)}
+                type="radio"
+                value={choice.value}
+              />
+              {choice.label}
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+function UsccbMassReadings({
+  item,
+  requirements,
+}: {
+  item: NonNullable<HolyMassCelebrationView["massLectionary"]>;
+  requirements: HolyMassCelebrationView["profile"]["requirements"];
+}) {
+  const hasFeedSequence = item.sections.some(
+    (section) => getUsccbSectionKind(section) === "sequence",
+  );
+
+  return (
+    <div className="space-y-8">
+      {item.sections.map((section, index) => {
+        const kind = getUsccbSectionKind(section);
+        return (
+          <div className="space-y-8" key={section.id}>
+            {kind === "acclamation" &&
+            requirements.sequence !== "none" &&
+            !hasFeedSequence ? (
+              <OrderItems
+                idPrefix="sequence"
+                items={[{
+                  id: "sequence",
+                  title: "Sequence",
+                  posture: "Sit",
+                  cue:
+                    requirements.sequence === "required"
+                      ? "Join the sequence before the Gospel acclamation."
+                      : "Join the sequence when it is used.",
+                }]}
+              />
+            ) : null}
+            <UsccbReadingCard
+              defaultOpen={index === 0}
+              kind={kind}
+              section={section}
+            />
+          </div>
+        );
+      })}
+
+      <details className="rounded-2xl border border-[var(--line)] bg-[var(--panel-soft)] px-5 py-4 text-xs text-[var(--muted)]">
+        <summary className="cursor-pointer font-bold uppercase tracking-[0.11em] text-[color:var(--liturgical-accent)]">
+          USCCB · U.S. Lectionary
+        </summary>
+        <p className="mt-3 leading-6">{item.copyright}</p>
+        <a
+          className="mt-3 inline-flex min-h-10 items-center gap-2 font-bold text-[color:var(--liturgical-accent)]"
+          href={item.link}
+          rel="noreferrer"
+          target="_blank"
+        >
+          Official readings
+          <ChevronRight aria-hidden className="size-4" />
+        </a>
+      </details>
+    </div>
+  );
+}
+
+type UsccbSectionKind =
+  | "reading"
+  | "psalm"
+  | "sequence"
+  | "acclamation"
+  | "gospel";
+
+function UsccbReadingCard({
+  defaultOpen,
+  kind,
+  section,
+}: {
+  defaultOpen: boolean;
+  kind: UsccbSectionKind;
+  section: UsccbLectionarySection;
+}) {
+  const disclosureId = useId();
+  const [open, setOpen] = useState(defaultOpen);
+  const primaryReference = section.citation
+    .split(",", 1)[0]
+    .trim()
+    .replace(/(\d)[a-z]$/iu, "$1");
+  const parsedReference = parseScriptureReference(primaryReference);
+  const scriptureBookId = parsedReference.ok ? parsedReference.book.id : null;
+  const gospelBook = getGospelBookName(scriptureBookId);
+  const readingIntroduction = getReadingIntroduction(scriptureBookId);
+  const posture: MassPosture =
+    kind === "gospel" || kind === "acclamation" ? "Stand" : "Sit";
+  const after =
+    kind === "gospel"
+      ? "Praise to you, Lord Jesus Christ."
+      : kind === "reading"
+        ? "Thanks be to God."
+        : null;
+
+  return (
+    <article className="illuminated-panel overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--panel)] shadow-[0_18px_56px_rgba(11,28,22,0.055)]">
+      <header className="border-b border-[var(--line)] bg-[var(--panel-soft)]">
+        <button
+          aria-controls={disclosureId}
+          aria-expanded={open}
+          className="flex min-h-24 w-full flex-wrap items-center justify-between gap-3 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--liturgical-accent)] sm:px-8 sm:py-6"
+          onClick={() => setOpen((current) => !current)}
+          type="button"
+        >
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.13em] text-[color:var(--liturgical-accent)]">
+              {section.title}
+            </p>
+            <h3 className="mt-2 font-serif text-2xl font-semibold text-[var(--foreground)] sm:text-3xl">
+              {section.citation}
+            </h3>
+          </div>
+          <span className="flex flex-wrap items-center justify-end gap-2">
+            <span className="inline-flex min-h-9 items-center rounded-full border border-[color:var(--gilt)]/35 bg-[var(--sanctuary-night)] px-3 text-[0.68rem] font-bold uppercase tracking-[0.1em] text-[var(--vellum)]">
+              U.S. Lectionary
+            </span>
+            <Posture posture={posture} />
+            <span className="inline-flex size-10 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--vellum)] text-[color:var(--liturgical-accent)]">
+              <ChevronRight
+                aria-hidden
+                className={`size-4 motion-safe:transition-transform ${open ? "rotate-90" : ""}`}
+              />
+            </span>
+          </span>
+        </button>
+      </header>
+
+      <div
+        className="px-5 py-8 sm:px-10 sm:py-10"
+        hidden={!open}
+        id={disclosureId}
+      >
+        {kind === "gospel" ? (
+          <div className="mb-8 space-y-3">
+            <MinisterLine label="Deacon or Priest">
+              The Lord be with you.
+            </MinisterLine>
+            <PeopleResponse label="People">And with your spirit.</PeopleResponse>
+            <MinisterLine label="Deacon or Priest">
+              A reading from the holy Gospel according to {gospelBook}.
+            </MinisterLine>
+            <PeopleResponse label="People">Glory to you, O Lord.</PeopleResponse>
+            <p className="rounded-xl border border-[color:var(--oxblood)]/20 bg-[var(--panel-soft)] px-4 py-3 font-serif text-sm italic leading-6 text-[var(--oxblood)]">
+              Trace the Cross on your forehead, lips, and heart.
+            </p>
+          </div>
+        ) : null}
+
+        {kind === "reading" && readingIntroduction ? (
+          <div className="mb-8">
+            <MinisterLine label="Reader">{readingIntroduction}</MinisterLine>
+          </div>
+        ) : null}
+
+        <div className="font-serif text-[1.08rem] leading-8 text-[var(--foreground)] sm:text-xl sm:leading-9">
+          {section.lines.map((line, index) => (
+            <p
+              className={
+                line.trimStart().startsWith("R.")
+                  ? "mt-5 font-semibold italic text-[color:var(--liturgical-accent)] first:mt-0"
+                  : kind === "acclamation"
+                    ? "italic"
+                    : undefined
+              }
+              key={`${section.id}:${index}`}
+            >
+              {line}
+            </p>
+          ))}
+        </div>
+
+        {after ? (
+          <div className="mt-8 space-y-3">
+            <MinisterLine label={kind === "gospel" ? "Deacon or Priest" : "Reader"}>
+              {kind === "gospel" ? "The Gospel of the Lord." : "The word of the Lord."}
+            </MinisterLine>
+            <PeopleResponse label="People">{after}</PeopleResponse>
+          </div>
+        ) : null}
+
+        {section.officialUrl ? (
+          <a
+            className="mt-7 inline-flex min-h-11 items-center gap-2 rounded-full border border-[var(--line)] px-4 text-xs font-bold text-[var(--muted)] transition hover:border-[color:var(--liturgical-accent)] hover:text-[color:var(--liturgical-accent)]"
+            href={section.officialUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <BookOpen aria-hidden className="size-4" />
+            USCCB
+          </a>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function getUsccbSectionKind(section: UsccbLectionarySection): UsccbSectionKind {
+  const title = section.title.toLowerCase();
+  if (
+    title.includes("gospel") &&
+    !title.includes("acclamation") &&
+    !title.includes("verse before")
+  ) {
+    return "gospel";
+  }
+  if (title.includes("psalm")) {
+    return "psalm";
+  }
+  if (title.includes("sequence")) {
+    return "sequence";
+  }
+  if (
+    title.includes("alleluia") ||
+    title.includes("acclamation") ||
+    title.includes("verse before")
+  ) {
+    return "acclamation";
+  }
+  return "reading";
 }
 
 function MassReadings({
@@ -1494,7 +1826,9 @@ function ReadingCard({
               key={`${passage.bookId}:${passage.chapter}:${passage.verseStart}:${passage.verseEnd}`}
             >
               <BookOpen aria-hidden className="size-4" />
-              {selection.segments[index]?.reference ?? "Open in Scripture"}
+              {selection.segments[index]?.reference
+                ? `Douay Bible · ${selection.segments[index].reference}`
+                : "Open Douay Bible"}
             </Link>
           ))}
         </div>
@@ -1822,6 +2156,9 @@ function parseMassSettings(value: string): MassSettings {
       anticipatedCutoff: isClockTime(parsed.anticipatedCutoff)
         ? parsed.anticipatedCutoff
         : DEFAULT_ANTICIPATED_CUTOFF,
+      readingTranslation: isMassReadingTranslation(parsed.readingTranslation)
+        ? parsed.readingTranslation
+        : DEFAULT_SETTINGS.readingTranslation,
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -1829,7 +2166,10 @@ function parseMassSettings(value: string): MassSettings {
 }
 
 function saveMassSettings(settings: MassSettings) {
-  if (!isClockTime(settings.anticipatedCutoff)) {
+  if (
+    !isClockTime(settings.anticipatedCutoff) ||
+    !isMassReadingTranslation(settings.readingTranslation)
+  ) {
     return;
   }
 
@@ -1839,4 +2179,10 @@ function saveMassSettings(settings: MassSettings) {
 
 function isClockTime(value: unknown): value is string {
   return typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function isMassReadingTranslation(
+  value: unknown,
+): value is MassReadingTranslation {
+  return value === "us-lectionary" || value === "douay-rheims";
 }
