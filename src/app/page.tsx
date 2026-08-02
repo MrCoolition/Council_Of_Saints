@@ -15,6 +15,7 @@ import { FormationConsole } from "@/components/formation-console";
 import { HolyClock } from "@/components/holy-clock";
 import { OfficeGuidePanels } from "@/components/office-guide-panels";
 import { formatPrayerItem } from "@/lib/domain";
+import { devotionGuides, prayers } from "@/lib/prayers";
 import { getRecommendedMysterySet } from "@/lib/rosary";
 import { SCRIPTURE_BOOKS } from "@/lib/scripture";
 import {
@@ -153,7 +154,7 @@ export default async function Home() {
             <PortalLink
               href="/prayers"
               Icon={Library}
-              label="Prayer library"
+              label={`${prayers.length} prayers · ${devotionGuides.length} devotions`}
               title="Prayers & devotions"
             />
           </div>

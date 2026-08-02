@@ -1,20 +1,50 @@
+import {
+  lifeTreasuryGuides,
+  lifeTreasuryPrayers,
+} from "./prayer-treasury-life";
+import {
+  marianSeasonGuides,
+  marianSeasonPrayers,
+} from "./prayer-treasury-marian";
+import { treasuryGuides, treasuryPrayers } from "./prayer-treasury";
+
 export const prayerCategories = [
   "Essential",
   "Daily rhythm",
+  "Christ & Trinity",
   "Marian",
   "Holy Spirit",
   "Eucharistic",
   "Reconciliation",
   "Saints & angels",
-  "Discernment",
+  "Litanies",
+  "Home & family",
+  "Discernment & work",
+  "Healing & protection",
+  "Church & vocations",
+  "Suffering & the departed",
+  "Liturgical year",
 ] as const;
 
 export type PrayerCategory = (typeof prayerCategories)[number];
+
+export type PrayerForm =
+  | "Prayer"
+  | "Creed"
+  | "Canticle"
+  | "Psalm"
+  | "Hymn"
+  | "Antiphon"
+  | "Litany"
+  | "Consecration";
 
 export type Prayer = {
   slug: string;
   title: string;
   category: PrayerCategory;
+  form?: PrayerForm;
+  latinTitle?: string;
+  keywords?: string[];
   summary: string;
   whenToPray: string;
   source: string;
@@ -26,7 +56,11 @@ export const formationGuideCategories = [
   "Daily review",
   "Sacramental preparation",
   "Eucharistic devotion",
+  "Marian devotion",
   "Passion devotion",
+  "Novena",
+  "Intercessory prayer",
+  "Liturgical season",
   "Daily rule",
 ] as const;
 
@@ -51,7 +85,7 @@ export type DevotionGuide = {
   steps: DevotionGuideStep[];
 };
 
-export const prayers: Prayer[] = [
+const corePrayers: Prayer[] = [
   {
     slug: "sign-of-the-cross",
     title: "Sign of the Cross",
@@ -102,6 +136,8 @@ export const prayers: Prayer[] = [
     slug: "apostles-creed",
     title: "Apostles' Creed",
     category: "Essential",
+    form: "Creed",
+    latinTitle: "Symbolum Apostolorum",
     summary: "A compact profession of the faith received at Baptism.",
     whenToPray: "At the opening of the Rosary or in daily profession of faith",
     source: "Ancient baptismal creed; public-domain English form",
@@ -191,6 +227,8 @@ export const prayers: Prayer[] = [
     slug: "nunc-dimittis",
     title: "Canticle of Simeon",
     category: "Daily rhythm",
+    form: "Canticle",
+    latinTitle: "Nunc Dimittis",
     summary: "Entrust the night and the end of life to the salvation seen in Christ.",
     whenToPray: "At night prayer or before sleep",
     source: "Luke 2:29-32; Nunc Dimittis in public-domain English",
@@ -202,6 +240,8 @@ export const prayers: Prayer[] = [
     slug: "hail-holy-queen",
     title: "Hail, Holy Queen",
     category: "Marian",
+    form: "Antiphon",
+    latinTitle: "Salve Regina",
     summary: "Ask the Mother of Mercy to turn her compassionate gaze toward us.",
     whenToPray: "At the close of the Rosary or in times of exile and sorrow",
     source: "Salve Regina; traditional public-domain English form",
@@ -231,11 +271,11 @@ export const prayers: Prayer[] = [
     source: "Traditional Catholic devotion; public-domain English form",
     text: [
       "V. The Angel of the Lord declared unto Mary. R. And she conceived by the Holy Ghost.",
-      "Pray one Hail Mary.",
+      "Hail Mary, full of grace, the Lord is with thee; blessed art thou amongst women, and blessed is the fruit of thy womb, Jesus. Holy Mary, Mother of God, pray for us sinners, now and at the hour of our death. Amen.",
       "V. Behold the handmaid of the Lord. R. Be it done unto me according to thy word.",
-      "Pray one Hail Mary.",
+      "Hail Mary, full of grace, the Lord is with thee; blessed art thou amongst women, and blessed is the fruit of thy womb, Jesus. Holy Mary, Mother of God, pray for us sinners, now and at the hour of our death. Amen.",
       "V. And the Word was made flesh. R. And dwelt among us.",
-      "Pray one Hail Mary.",
+      "Hail Mary, full of grace, the Lord is with thee; blessed art thou amongst women, and blessed is the fruit of thy womb, Jesus. Holy Mary, Mother of God, pray for us sinners, now and at the hour of our death. Amen.",
       "V. Pray for us, O holy Mother of God. R. That we may be made worthy of the promises of Christ.",
       "Let us pray. Pour forth, we beseech Thee, O Lord, Thy grace into our hearts; that we, to whom the Incarnation of Christ, Thy Son, was made known by the message of an angel, may, by His Passion and Cross, be brought to the glory of His Resurrection. Through the same Christ our Lord. Amen.",
     ],
@@ -244,6 +284,7 @@ export const prayers: Prayer[] = [
     slug: "regina-caeli",
     title: "Regina Caeli",
     category: "Marian",
+    form: "Antiphon",
     summary: "Rejoice with Mary in the Resurrection of her Son.",
     whenToPray: "During Eastertide in place of the Angelus",
     source: "Traditional Marian antiphon; public-domain English form",
@@ -257,6 +298,8 @@ export const prayers: Prayer[] = [
     slug: "sub-tuum-praesidium",
     title: "We Fly to Thy Patronage",
     category: "Marian",
+    form: "Antiphon",
+    latinTitle: "Sub Tuum Praesidium",
     summary: "Take refuge under the protection of the Mother of God.",
     whenToPray: "In danger, anxiety, or need",
     source: "Sub Tuum Praesidium; ancient prayer in public-domain English",
@@ -377,7 +420,7 @@ export const prayers: Prayer[] = [
   {
     slug: "direct-our-actions",
     title: "Direct Our Actions",
-    category: "Discernment",
+    category: "Discernment & work",
     summary: "Place the beginning, progress, and completion of every work in God.",
     whenToPray: "Before a decision, project, meeting, or journey",
     source: "Actiones nostras; traditional Roman collect in public-domain English",
@@ -387,7 +430,14 @@ export const prayers: Prayer[] = [
   },
 ];
 
-export const devotionGuides: DevotionGuide[] = [
+export const prayers: Prayer[] = [
+  ...corePrayers,
+  ...treasuryPrayers,
+  ...marianSeasonPrayers,
+  ...lifeTreasuryPrayers,
+];
+
+const coreDevotionGuides: DevotionGuide[] = [
   {
     slug: "lectio-divina",
     title: "Lectio Divina",
@@ -757,3 +807,92 @@ export const devotionGuides: DevotionGuide[] = [
     ],
   },
 ];
+
+export const devotionGuides: DevotionGuide[] = [
+  ...coreDevotionGuides,
+  ...treasuryGuides,
+  ...marianSeasonGuides,
+  ...lifeTreasuryGuides,
+];
+
+export const devotionGuidePrayerSlugs: Record<string, readonly string[]> = {
+  "lectio-divina": ["sign-of-the-cross", "our-father"],
+  "daily-examen": [
+    "sign-of-the-cross",
+    "act-of-contrition",
+    "our-father",
+    "nunc-dimittis",
+  ],
+  "confession-preparation": ["act-of-contrition"],
+  "eucharistic-adoration": [
+    "glory-be",
+    "anima-christi",
+    "spiritual-communion",
+    "divine-praises",
+  ],
+  "stations-of-the-cross": ["our-father", "hail-mary", "glory-be"],
+  "morning-evening-rule": [
+    "sign-of-the-cross",
+    "morning-offering",
+    "act-of-contrition",
+    "nunc-dimittis",
+  ],
+  "novena-to-the-holy-ghost": [
+    "veni-creator-spiritus",
+    "prayer-for-the-seven-gifts",
+    "our-father",
+    "hail-mary",
+    "glory-be",
+  ],
+  "novena-to-the-sacred-heart": [
+    "consecration-to-sacred-heart",
+    "litany-sacred-heart",
+    "our-father",
+    "hail-mary",
+    "glory-be",
+  ],
+  "first-friday-sacred-heart": [
+    "spiritual-communion",
+    "prayer-after-communion-aquinas",
+    "act-of-reparation",
+    "consecration-to-sacred-heart",
+    "litany-sacred-heart",
+  ],
+  "seven-sorrows-rosary": [
+    "sign-of-the-cross",
+    "act-of-contrition",
+    "our-father",
+    "hail-mary",
+  ],
+  "saint-joseph-novena-pattern": [
+    "memorare-to-saint-joseph",
+    "saint-joseph-after-rosary",
+    "our-father",
+    "hail-mary",
+    "glory-be",
+  ],
+  "advent-prayer-walk": [
+    "saint-andrew-christmas-prayer",
+    "glory-be",
+  ],
+  "household-prayer-and-blessing": [
+    "sign-of-the-cross",
+    "prayer-for-peace-in-the-home",
+    "blessing-of-a-household",
+    "our-father",
+  ],
+  "vigil-with-the-dying": [
+    "sign-of-the-cross",
+    "our-father",
+    "act-of-hope",
+    "prayer-for-a-dying-person",
+    "eternal-rest",
+  ],
+  "praying-through-grief": [
+    "de-profundis",
+    "prayer-for-one-deceased",
+    "eternal-rest",
+    "apostles-creed",
+    "sign-of-the-cross",
+  ],
+};

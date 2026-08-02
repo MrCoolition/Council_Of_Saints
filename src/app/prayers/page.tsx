@@ -4,9 +4,9 @@ import { ArrowLeft, BookOpen } from "lucide-react";
 import { PrayerLibrary } from "@/components/prayer-library";
 
 export const metadata: Metadata = {
-  title: "Prayer Library",
+  title: "Catholic Prayer Treasury",
   description:
-    "Traditional Catholic prayers for daily prayer, the sacraments, Scripture, and adoration.",
+    "A comprehensive treasury of traditional Catholic prayers, litanies, novenas, chaplets, and guided devotions.",
 };
 
 export default function PrayersPage() {
@@ -23,20 +23,35 @@ export default function PrayersPage() {
           </Link>
         </nav>
 
-        <header className="overflow-hidden rounded-xl border border-sanctuary-night bg-sanctuary-night text-vellum shadow-sm">
-          <div className="p-6 sm:p-8 lg:p-10">
-            <div className="max-w-4xl">
+        <header className="relative isolate overflow-hidden rounded-[2rem] border border-gilt/30 bg-sanctuary-night text-vellum shadow-[var(--shadow-raised)]">
+          <div
+            aria-hidden
+            className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_78%_28%,rgba(217,180,94,0.18),transparent_29%),radial-gradient(circle_at_14%_120%,rgba(255,255,255,0.08),transparent_42%)]"
+          />
+          <div className="p-6 sm:p-9 lg:p-12">
+            <div className="max-w-5xl">
               <div className="flex items-center gap-3 text-[var(--gilt-light)]">
-                <span className="flex size-11 items-center justify-center rounded-full border border-gilt/40 bg-ecclesial-green">
-                  <BookOpen aria-hidden className="size-5" />
+                <span className="flex size-12 items-center justify-center rounded-full border border-gilt/40 bg-ecclesial-green shadow-[0_0_30px_rgb(198_161_91/0.16)]">
+                  <BookOpen aria-hidden className="size-5.5" />
                 </span>
                 <p className="text-xs font-bold uppercase tracking-[0.2em]">
-                  Prayer & devotion
+                  The treasury of the Church
                 </p>
               </div>
-              <h1 className="mt-6 max-w-4xl font-serif text-4xl font-semibold leading-[1.05] text-vellum sm:text-5xl lg:text-6xl">
-                A treasury for the whole life of prayer.
+              <h1 className="mt-7 max-w-4xl font-serif text-4xl font-semibold leading-[1.02] text-vellum sm:text-5xl lg:text-7xl">
+                Every hour. Every need. Turn to God.
               </h1>
+              <p className="mt-5 max-w-2xl font-serif text-lg leading-8 text-vellum/78 sm:text-xl">
+                Prayers, litanies, novenas, and devotions—opened directly into
+                a quiet place to pray.
+              </p>
+              <div className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-xs font-bold uppercase tracking-[0.16em] text-[var(--gilt-light)]/85">
+                <span>Traditional prayers</span>
+                <span aria-hidden>✦</span>
+                <span>Sacred devotions</span>
+                <span aria-hidden>✦</span>
+                <span>Prayer by need</span>
+              </div>
             </div>
           </div>
           <div className="h-1.5 bg-[linear-gradient(90deg,var(--oxblood)_0%,var(--gilt)_52%,var(--gilt-light)_100%)]" />
