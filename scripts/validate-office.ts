@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { getLiturgicalDay } from "../src/lib/liturgical-calendar";
-import { HOLY_CLOCK_HOURS } from "../src/lib/liturgy-hours-clock";
+import {
+  getDefaultHolyClockPreferences,
+  HOLY_CLOCK_CHIMES,
+  HOLY_CLOCK_HOURS,
+  readHolyClockPreferences,
+} from "../src/lib/liturgy-hours-clock";
 import { getOfficeDevotionalTexts } from "../src/lib/office-devotional-texts";
 import {
   getDailyOfficeGuides,
@@ -24,6 +29,7 @@ async function main() {
   let segmentCount = 0;
 
   validateHolyClock();
+  await validatePrayerChimes();
   await validateCalendarAlarms();
 
   for (let psalterWeek = 1; psalterWeek <= 4; psalterWeek += 1) {
@@ -193,7 +199,7 @@ async function main() {
   );
 
   console.log(
-    `Validated the seven-hour Holy Clock, device alarms, 4 weeks × 7 days × 7 prayer stops, and the July 29, 2026 U.S. golden fixture (${anchorCount} anchors, ${segmentCount} local Scripture segments).`,
+    `Validated the seven-hour Holy Clock, four prayer chimes, device alarms, 4 weeks × 7 days × 7 prayer stops, and the July 29, 2026 U.S. golden fixture (${anchorCount} anchors, ${segmentCount} local Scripture segments).`,
   );
 }
 
@@ -222,6 +228,54 @@ function validateHolyClock() {
       `Holy Clock stop ${index + 1} must remain ${id} at ${defaultTime}`,
     );
   }
+
+  const defaults = getDefaultHolyClockPreferences();
+  assert(
+    defaults.soundEnabled &&
+      defaults.chimeId === HOLY_CLOCK_CHIMES[0].id &&
+      defaults.soundVolume === 0.55,
+    "The Holy Clock must begin with the gentle Sanctuary Chime at 55% volume",
+  );
+
+  const migrated = readHolyClockPreferences(
+    JSON.stringify({
+      version: 1,
+      remindersEnabled: true,
+      times: { ...defaults.times, morning_prayer: "07:15" },
+    }),
+  );
+  assert(
+    migrated.version === 2 &&
+      migrated.remindersEnabled &&
+      migrated.times.morning_prayer === "07:15" &&
+      migrated.chimeId === defaults.chimeId,
+    "Version-one Holy Clock settings must migrate without losing reminders or custom times",
+  );
+}
+
+async function validatePrayerChimes() {
+  assert(
+    HOLY_CLOCK_CHIMES.length === 4 &&
+      new Set(HOLY_CLOCK_CHIMES.map((chime) => chime.id)).size === 4,
+    "The Holy Clock must expose four distinct prayer chimes",
+  );
+
+  for (const chime of HOLY_CLOCK_CHIMES) {
+    const audio = await readFile(
+      path.join(process.cwd(), "public", ...chime.src.slice(1).split("/")),
+    );
+    assert(
+      audio.length > 900_000 &&
+        audio.subarray(0, 4).toString("ascii") === "RIFF" &&
+        audio.subarray(8, 12).toString("ascii") === "WAVE",
+      `${chime.label} must resolve to a complete PCM WAV asset`,
+    );
+  }
+
+  assert(
+    HOLY_CLOCK_CHIMES.find((chime) => chime.id === "chime_04")?.gain === 0.5,
+    "The Great Bell must be attenuated to protect against its clipped source peak",
+  );
 }
 
 async function validateCalendarAlarms() {

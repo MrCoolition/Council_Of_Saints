@@ -11,20 +11,23 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
+import { useHolyClockAlarm } from "@/components/holy-clock-alarm-provider";
 import {
   formatHolyClockCountdown,
   getDefaultHolyClockPreferences,
   getDefaultHolyClockTimes,
-  getDueHolyClockHour,
+  getHolyClockChime,
   getHolyClockState,
+  HOLY_CLOCK_CHIMES,
   HOLY_CLOCK_HOURS,
+  HOLY_CLOCK_LEGACY_STORAGE_KEY,
+  HOLY_CLOCK_PREFERENCES_EVENT,
   HOLY_CLOCK_STORAGE_KEY,
   isHolyClockTime,
   readHolyClockPreferences,
-  type HolyClockHour,
+  type HolyClockChimeId,
   type HolyClockHourId,
   type HolyClockPreferences,
 } from "@/lib/liturgy-hours-clock";
@@ -56,10 +59,7 @@ export function HolyClock() {
   );
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
   const [announcement, setAnnouncement] = useState("");
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const serviceWorkerRegistrationRef =
-    useRef<ServiceWorkerRegistration | null>(null);
-  const lastReminderRef = useRef("");
+  const { playingChimeId, playChime, stopChime } = useHolyClockAlarm();
 
   useEffect(() => {
     const initialTick = window.setTimeout(() => setNow(new Date()), 0);
@@ -72,47 +72,46 @@ export function HolyClock() {
   }, []);
 
   useEffect(() => {
-    const loadPreferences = window.setTimeout(() => {
+    const loadPreferences = () => {
       setPreferences(readSavedPreferences());
       setHasLoadedPreferences(true);
-    }, 0);
+    };
+    const initialLoad = window.setTimeout(loadPreferences, 0);
 
-    return () => window.clearTimeout(loadPreferences);
-  }, []);
+    const handlePreferenceChange = (event: Event) => {
+      const changedPreferences = (
+        event as CustomEvent<HolyClockPreferences>
+      ).detail;
+      if (changedPreferences) {
+        setPreferences(changedPreferences);
+        setHasLoadedPreferences(true);
+      } else {
+        loadPreferences();
+      }
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (
+        event.key === HOLY_CLOCK_STORAGE_KEY ||
+        event.key === HOLY_CLOCK_LEGACY_STORAGE_KEY
+      ) {
+        loadPreferences();
+      }
+    };
 
-  useEffect(() => {
-    if (!("serviceWorker" in navigator)) {
-      return;
-    }
-
-    let cancelled = false;
-    void navigator.serviceWorker
-      .register("/holy-clock-sw.js", {
-        scope: "/",
-        updateViaCache: "none",
-      })
-      .then((registration) => {
-        if (!cancelled) {
-          serviceWorkerRegistrationRef.current = registration;
-        }
-      })
-      .catch(() => {
-        // The local bell and device-calendar alarms remain available.
-      });
-
+    window.addEventListener(
+      HOLY_CLOCK_PREFERENCES_EVENT,
+      handlePreferenceChange,
+    );
+    window.addEventListener("storage", handleStorage);
     return () => {
-      cancelled = true;
+      window.clearTimeout(initialLoad);
+      window.removeEventListener(
+        HOLY_CLOCK_PREFERENCES_EVENT,
+        handlePreferenceChange,
+      );
+      window.removeEventListener("storage", handleStorage);
     };
   }, []);
-
-  useEffect(
-    () => () => {
-      if (audioContextRef.current) {
-        void audioContextRef.current.close();
-      }
-    },
-    [],
-  );
 
   const clockState = useMemo(
     () => (now ? getHolyClockState(now, preferences.times) : null),
@@ -127,128 +126,45 @@ export function HolyClock() {
           HOLY_CLOCK_STORAGE_KEY,
           JSON.stringify(nextPreferences),
         );
+        window.localStorage.removeItem(HOLY_CLOCK_LEGACY_STORAGE_KEY);
       } catch {
         setAnnouncement(
           "The clock is updated for this visit, but this browser could not save it.",
         );
       }
+      window.dispatchEvent(
+        new CustomEvent(HOLY_CLOCK_PREFERENCES_EVENT, {
+          detail: nextPreferences,
+        }),
+      );
     },
     [],
   );
 
-  const getAudioContext = useCallback((): AudioContext | null => {
-    if (typeof window.AudioContext !== "function") {
-      return null;
+  const previewSelectedChime = useCallback(async () => {
+    if (playingChimeId) {
+      stopChime();
+      setAnnouncement("Prayer chime stopped.");
+      return;
     }
 
-    if (!audioContextRef.current || audioContextRef.current.state === "closed") {
-      audioContextRef.current = new AudioContext();
-    }
-    return audioContextRef.current;
-  }, []);
-
-  const ringBell = useCallback(async () => {
-    const context = getAudioContext();
-    if (!context) {
-      return false;
-    }
-
-    if (context.state === "suspended") {
-      try {
-        await context.resume();
-      } catch {
-        return false;
-      }
-    }
-
-    strikeBell(context, context.currentTime, 659.3);
-    strikeBell(context, context.currentTime + 0.72, 784);
-    return true;
-  }, [getAudioContext]);
-
-  const vibrate = useCallback(() => {
-    if ("vibrate" in navigator) {
-      navigator.vibrate([240, 120, 240, 120, 520]);
-    }
-  }, []);
-
-  const testBell = useCallback(async () => {
-    const bellSounded = await ringBell();
-    vibrate();
-    setAnnouncement(
-      bellSounded
-        ? "Prayer bell sounded."
-        : "Vibration tested; audio is unavailable on this device.",
+    const chime = getHolyClockChime(preferences.chimeId);
+    const chimeSounded = await playChime(
+      chime.id,
+      preferences.soundVolume,
     );
-  }, [ringBell, vibrate]);
-
-  const deliverReminder = useCallback(
-    (hour: HolyClockHour) => {
-      void ringBell();
-      vibrate();
-
-      if ("Notification" in window && Notification.permission === "granted") {
-        const serviceWorker =
-          serviceWorkerRegistrationRef.current?.active ??
-          navigator.serviceWorker?.controller;
-
-        if (serviceWorker) {
-          serviceWorker.postMessage({
-            type: "SHOW_PRAYER_NOTIFICATION",
-            title: `Time for ${hour.name}`,
-            body: `${hour.traditionalName} · Open Sanctum Council and pray.`,
-            url: `${window.location.origin}/${hour.anchor}`,
-            tag: `sanctum-council:${hour.id}`,
-          });
-          setAnnouncement(
-            `It is time for ${hour.name}, ${hour.traditionalName}.`,
-          );
-          return;
-        }
-
-        try {
-          const notification = new Notification(`Time for ${hour.name}`, {
-            body: `${hour.traditionalName} · Open Sanctum Council and pray.`,
-            tag: `sanctum-council:${hour.id}`,
-          });
-          notification.onclick = () => {
-            window.focus();
-            window.location.hash = hour.anchor;
-            notification.close();
-          };
-        } catch {
-          // The local bell and vibration still carry the reminder.
-        }
-      }
-
-      setAnnouncement(`It is time for ${hour.name}, ${hour.traditionalName}.`);
-    },
-    [ringBell, vibrate],
-  );
-
-  useEffect(() => {
-    if (!now || !hasLoadedPreferences || !preferences.remindersEnabled) {
+    if (chimeSounded) {
+      setAnnouncement(`${chime.label} previewing.`);
       return;
     }
 
-    const dueHour = getDueHolyClockHour(now, preferences.times);
-    if (!dueHour) {
-      return;
-    }
-
-    const reminderKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}:${now.getHours()}:${now.getMinutes()}:${dueHour.id}`;
-    if (lastReminderRef.current === reminderKey) {
-      return;
-    }
-
-    lastReminderRef.current = reminderKey;
-    deliverReminder(dueHour);
+    setAnnouncement("Audio is unavailable on this device.");
   }, [
-    deliverReminder,
-    hasLoadedPreferences,
-    now,
-    preferences.remindersEnabled,
-    preferences.times,
+    playChime,
+    playingChimeId,
+    preferences.chimeId,
+    preferences.soundVolume,
+    stopChime,
   ]);
 
   const toggleReminders = useCallback(async () => {
@@ -258,13 +174,8 @@ export function HolyClock() {
       return;
     }
 
-    const context = getAudioContext();
-    if (context?.state === "suspended") {
-      try {
-        await context.resume();
-      } catch {
-        // Notifications and vibration can still be enabled without audio.
-      }
+    if (preferences.soundEnabled) {
+      void playChime(preferences.chimeId, preferences.soundVolume);
     }
 
     let nextPermission: PermissionState = "unsupported";
@@ -280,12 +191,15 @@ export function HolyClock() {
     }
 
     persistPreferences({ ...preferences, remindersEnabled: true });
+    const soundDescription = preferences.soundEnabled
+      ? "chime, vibration"
+      : "vibration";
     setAnnouncement(
       nextPermission === "granted"
-        ? "Prayer reminders enabled with bell, vibration, and notifications."
-        : "Prayer reminders enabled with bell and vibration.",
+        ? `Prayer reminders enabled with ${soundDescription}, and notifications.`
+        : `Prayer reminders enabled with ${soundDescription}.`,
     );
-  }, [getAudioContext, persistPreferences, preferences]);
+  }, [persistPreferences, playChime, preferences]);
 
   const updateTime = useCallback(
     (hourId: HolyClockHourId, time: string) => {
@@ -308,6 +222,34 @@ export function HolyClock() {
     });
     setAnnouncement("Traditional prayer times restored.");
   }, [persistPreferences, preferences]);
+
+  const toggleChimeSound = useCallback(() => {
+    const soundEnabled = !preferences.soundEnabled;
+    if (!soundEnabled) {
+      stopChime();
+    } else if (preferences.remindersEnabled) {
+      void playChime(preferences.chimeId, preferences.soundVolume);
+    }
+    persistPreferences({ ...preferences, soundEnabled });
+    setAnnouncement(`Prayer chime ${soundEnabled ? "on" : "off"}.`);
+  }, [persistPreferences, playChime, preferences, stopChime]);
+
+  const selectChime = useCallback(
+    (chimeId: HolyClockChimeId) => {
+      stopChime();
+      persistPreferences({ ...preferences, chimeId });
+      setAnnouncement(`${getHolyClockChime(chimeId).label} selected.`);
+    },
+    [persistPreferences, preferences, stopChime],
+  );
+
+  const updateChimeVolume = useCallback(
+    (volume: number) => {
+      const soundVolume = Math.min(1, Math.max(0.1, volume));
+      persistPreferences({ ...preferences, soundVolume });
+    },
+    [persistPreferences, preferences],
+  );
 
   const timeZone =
     now ? Intl.DateTimeFormat().resolvedOptions().timeZone : "Local time";
@@ -512,17 +454,133 @@ export function HolyClock() {
             })}
           </ol>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <fieldset className="mt-5 rounded-2xl border border-gilt/30 bg-gilt/[0.06] p-4 sm:p-5">
+            <legend className="sr-only">Prayer chime</legend>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex size-10 items-center justify-center rounded-full bg-sanctuary-night text-[var(--gilt-light)]">
+                  <Volume2 aria-hidden className="size-4" />
+                </span>
+                <div>
+                  <h3 className="font-serif text-lg font-semibold text-foreground">
+                    Prayer chime
+                  </h3>
+                  <p className="text-xs text-muted">
+                    {getHolyClockChime(preferences.chimeId).label}
+                  </p>
+                </div>
+              </div>
+              <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl px-2 text-xs font-bold text-foreground focus-within:ring-2 focus-within:ring-ecclesial-green/40 focus-within:ring-offset-2">
+                <input
+                  checked={preferences.soundEnabled}
+                  className="sr-only"
+                  onChange={toggleChimeSound}
+                  role="switch"
+                  type="checkbox"
+                />
+                <span
+                  aria-hidden
+                  className={`relative h-6 w-11 rounded-full border transition ${
+                    preferences.soundEnabled
+                      ? "border-ecclesial-green bg-ecclesial-green"
+                      : "border-hairline bg-vellum"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform ${
+                      preferences.soundEnabled
+                        ? "translate-x-[1.15rem]"
+                        : "translate-x-0.5"
+                    }`}
+                  />
+                </span>
+                {preferences.soundEnabled ? "Sound on" : "Sound off"}
+              </label>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {HOLY_CLOCK_CHIMES.map((chime) => {
+                const isSelected = preferences.chimeId === chime.id;
+                return (
+                  <label
+                    className={`cursor-pointer rounded-xl border p-3 transition focus-within:ring-2 focus-within:ring-ecclesial-green/40 ${
+                      isSelected
+                        ? "border-ecclesial-green bg-ecclesial-green/[0.07]"
+                        : "border-hairline bg-[var(--panel)] hover:border-gilt"
+                    }`}
+                    key={chime.id}
+                  >
+                    <input
+                      checked={isSelected}
+                      className="sr-only"
+                      name="holy-clock-chime"
+                      onChange={() => selectChime(chime.id)}
+                      type="radio"
+                      value={chime.id}
+                    />
+                    <span className="flex items-center gap-2">
+                      <span
+                        aria-hidden
+                        className={`size-2.5 rounded-full border ${
+                          isSelected
+                            ? "border-ecclesial-green bg-ecclesial-green ring-2 ring-ecclesial-green/20"
+                            : "border-muted"
+                        }`}
+                      />
+                      <span className="text-sm font-bold text-foreground">
+                        {chime.label}
+                      </span>
+                    </span>
+                    <span className="mt-1 block pl-[1.125rem] text-[0.68rem] leading-4 text-muted">
+                      {chime.description}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <label className="block">
+                <span className="flex items-center justify-between text-xs font-bold text-foreground">
+                  Volume
+                  <span className="font-mono text-muted">
+                    {Math.round(preferences.soundVolume * 100)}%
+                  </span>
+                </span>
+                <input
+                  aria-label="Prayer chime volume"
+                  className="mt-2 h-2 w-full cursor-pointer accent-ecclesial-green disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={!preferences.soundEnabled}
+                  max="100"
+                  min="10"
+                  onChange={(event) =>
+                    updateChimeVolume(Number(event.currentTarget.value) / 100)
+                  }
+                  step="5"
+                  type="range"
+                  value={Math.round(preferences.soundVolume * 100)}
+                />
+              </label>
+              <button
+                aria-pressed={playingChimeId !== null}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-gilt/40 bg-[var(--panel)] px-5 text-sm font-bold text-foreground transition hover:border-gilt hover:bg-gilt/15 disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={!preferences.soundEnabled}
+                onClick={() => void previewSelectedChime()}
+                type="button"
+              >
+                <Volume2 aria-hidden className="size-4 text-oxblood" />
+                {playingChimeId ? "Stop" : "Preview"}
+              </button>
+            </div>
+
+            <p className="mt-3 text-[0.68rem] leading-5 text-muted">
+              For closed-screen alerts, add device calendar alarms.
+            </p>
+          </fieldset>
+
+          <div className="mt-3">
             <button
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-hairline bg-vellum px-4 text-sm font-bold text-foreground transition hover:border-gilt hover:bg-gilt/15"
-              onClick={() => void testBell()}
-              type="button"
-            >
-              <Volume2 aria-hidden className="size-4 text-oxblood" />
-              Test bell & vibration
-            </button>
-            <button
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-hairline bg-vellum px-4 text-center text-sm font-bold text-foreground transition hover:border-ecclesial-green hover:bg-ecclesial-green/5"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-hairline bg-vellum px-4 text-center text-sm font-bold text-foreground transition hover:border-ecclesial-green hover:bg-ecclesial-green/5"
               onClick={downloadCalendarAlarms}
               type="button"
             >
@@ -760,34 +818,6 @@ function SacredDial({
   );
 }
 
-function strikeBell(context: AudioContext, startTime: number, pitch: number) {
-  const partials = [
-    { frequency: pitch, volume: 0.12, decay: 2.2 },
-    { frequency: pitch * 1.5, volume: 0.055, decay: 1.65 },
-    { frequency: pitch * 2.01, volume: 0.028, decay: 1.1 },
-  ];
-
-  for (const partial of partials) {
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(partial.frequency, startTime);
-    gain.gain.setValueAtTime(0.0001, startTime);
-    gain.gain.exponentialRampToValueAtTime(
-      partial.volume,
-      startTime + 0.018,
-    );
-    gain.gain.exponentialRampToValueAtTime(
-      0.0001,
-      startTime + partial.decay,
-    );
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start(startTime);
-    oscillator.stop(startTime + partial.decay + 0.05);
-  }
-}
-
 function polarPoint(angleInDegrees: number, radius: number) {
   const angleInRadians = (angleInDegrees * Math.PI) / 180;
   return {
@@ -804,7 +834,8 @@ function timeToMinutes(value: string) {
 function readSavedPreferences() {
   try {
     return readHolyClockPreferences(
-      window.localStorage.getItem(HOLY_CLOCK_STORAGE_KEY),
+      window.localStorage.getItem(HOLY_CLOCK_STORAGE_KEY) ??
+        window.localStorage.getItem(HOLY_CLOCK_LEGACY_STORAGE_KEY),
     );
   } catch {
     return getDefaultHolyClockPreferences();

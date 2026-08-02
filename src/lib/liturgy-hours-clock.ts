@@ -1,6 +1,58 @@
 export const HOLY_CLOCK_STORAGE_KEY =
+  "sanctum-council:holy-clock-preferences:v2";
+export const HOLY_CLOCK_LEGACY_STORAGE_KEY =
   "sanctum-council:holy-clock-preferences:v1";
-export const HOLY_CLOCK_PREFERENCES_VERSION = 1 as const;
+export const HOLY_CLOCK_PREFERENCES_EVENT =
+  "sanctum-council:holy-clock-preferences-changed";
+export const HOLY_CLOCK_PREFERENCES_VERSION = 2 as const;
+
+export const HOLY_CLOCK_CHIME_IDS = [
+  "chime_01",
+  "chime_02",
+  "chime_03",
+  "chime_04",
+] as const;
+
+export type HolyClockChimeId = (typeof HOLY_CLOCK_CHIME_IDS)[number];
+
+export type HolyClockChime = {
+  id: HolyClockChimeId;
+  label: string;
+  description: string;
+  gain: number;
+  src: `/audio/holy-clock/${string}.wav`;
+};
+
+export const HOLY_CLOCK_CHIMES: readonly HolyClockChime[] = [
+  {
+    id: "chime_01",
+    label: "Sanctuary Chime",
+    description: "Warm · spacious · gentle",
+    gain: 1,
+    src: "/audio/holy-clock/chime-01.wav",
+  },
+  {
+    id: "chime_02",
+    label: "Cloister Bell",
+    description: "Rounded · calm · clear",
+    gain: 1,
+    src: "/audio/holy-clock/chime-02.wav",
+  },
+  {
+    id: "chime_03",
+    label: "Jubilee Peal",
+    description: "Bright · threefold · ringing",
+    gain: 1,
+    src: "/audio/holy-clock/chime-03.wav",
+  },
+  {
+    id: "chime_04",
+    label: "Great Bell",
+    description: "Strong · metallic · commanding",
+    gain: 0.5,
+    src: "/audio/holy-clock/chime-04.wav",
+  },
+] as const;
 
 export const HOLY_CLOCK_HOUR_IDS = [
   "office_readings",
@@ -87,6 +139,9 @@ export type HolyClockTimes = Record<HolyClockHourId, string>;
 export type HolyClockPreferences = {
   version: typeof HOLY_CLOCK_PREFERENCES_VERSION;
   remindersEnabled: boolean;
+  soundEnabled: boolean;
+  chimeId: HolyClockChimeId;
+  soundVolume: number;
   times: HolyClockTimes;
 };
 
@@ -122,6 +177,9 @@ export function getDefaultHolyClockPreferences(): HolyClockPreferences {
   return {
     version: HOLY_CLOCK_PREFERENCES_VERSION,
     remindersEnabled: false,
+    soundEnabled: true,
+    chimeId: "chime_01",
+    soundVolume: 0.55,
     times: getDefaultHolyClockTimes(),
   };
 }
@@ -135,10 +193,14 @@ export function readHolyClockPreferences(
 
   try {
     const value: unknown = JSON.parse(storedValue);
-    if (!isRecord(value) || value.version !== HOLY_CLOCK_PREFERENCES_VERSION) {
+    if (
+      !isRecord(value) ||
+      (value.version !== 1 && value.version !== HOLY_CLOCK_PREFERENCES_VERSION)
+    ) {
       return getDefaultHolyClockPreferences();
     }
 
+    const defaults = getDefaultHolyClockPreferences();
     const storedTimes = isRecord(value.times) ? value.times : {};
     const times = getDefaultHolyClockTimes();
 
@@ -152,11 +214,30 @@ export function readHolyClockPreferences(
     return {
       version: HOLY_CLOCK_PREFERENCES_VERSION,
       remindersEnabled: value.remindersEnabled === true,
+      soundEnabled:
+        value.version === HOLY_CLOCK_PREFERENCES_VERSION
+          ? value.soundEnabled !== false
+          : defaults.soundEnabled,
+      chimeId: isHolyClockChimeId(value.chimeId)
+        ? value.chimeId
+        : defaults.chimeId,
+      soundVolume: isHolyClockVolume(value.soundVolume)
+        ? value.soundVolume
+        : defaults.soundVolume,
       times,
     };
   } catch {
     return getDefaultHolyClockPreferences();
   }
+}
+
+export function getHolyClockChime(
+  chimeId: HolyClockChimeId,
+): HolyClockChime {
+  return (
+    HOLY_CLOCK_CHIMES.find((chime) => chime.id === chimeId) ??
+    HOLY_CLOCK_CHIMES[0]
+  );
 }
 
 export function isHolyClockTime(value: string): boolean {
@@ -259,4 +340,15 @@ function findCurrentIndex(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isHolyClockChimeId(value: unknown): value is HolyClockChimeId {
+  return (
+    typeof value === "string" &&
+    HOLY_CLOCK_CHIME_IDS.some((chimeId) => chimeId === value)
+  );
+}
+
+function isHolyClockVolume(value: unknown): value is number {
+  return typeof value === "number" && value >= 0.1 && value <= 1;
 }

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { HolyClockAlarmProvider } from "@/components/holy-clock-alarm-provider";
 import { SiteNavigation } from "@/components/site-navigation";
 import "./globals.css";
 
@@ -25,17 +26,19 @@ export default function RootLayout({
   return (
     <html className="h-full" data-scroll-behavior="smooth" lang="en">
       <body className="flex min-h-full flex-col antialiased">
-        <a className="skip-link" href="#main-content">
-          Skip to prayer content
-        </a>
-        <SiteNavigation />
-        <div
-          className="oratory-content min-w-0 flex-1"
-          id="main-content"
-          tabIndex={-1}
-        >
-          {children}
-        </div>
+        <HolyClockAlarmProvider>
+          <a className="skip-link" href="#main-content">
+            Skip to prayer content
+          </a>
+          <SiteNavigation />
+          <div
+            className="oratory-content min-w-0 flex-1"
+            id="main-content"
+            tabIndex={-1}
+          >
+            {children}
+          </div>
+        </HolyClockAlarmProvider>
       </body>
     </html>
   );
