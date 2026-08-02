@@ -11,7 +11,6 @@ type RosaryBeadsProps = {
   step: RosaryStep;
   repetition: number;
   finished: boolean;
-  progressPercent: number;
   onAdvance: () => void;
 };
 
@@ -27,6 +26,7 @@ type BeadPoint = {
 type StationName =
   | "crucifix"
   | "medal"
+  | "mystery"
   | "opening-glory"
   | "decade-glory"
   | "fatima";
@@ -109,7 +109,6 @@ export function RosaryBeads({
   step,
   repetition,
   finished,
-  progressPercent,
   onAdvance,
 }: RosaryBeadsProps) {
   const rawId = useId();
@@ -129,46 +128,22 @@ export function RosaryBeads({
 
   return (
     <section
-      aria-labelledby={`${gradientId}-chaplet-title`}
-      className="relative overflow-hidden rounded-xl border border-[#315d4e] bg-[radial-gradient(circle_at_50%_34%,#1d5a47_0%,#0b3429_46%,#061d18_100%)] text-[#fff4d6] shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_24px_70px_rgb(4_18_14/0.25)]"
+      aria-label="Interactive Rosary beads"
+      className={[
+        "rosary-chaplet",
+        finished ? "rosary-chaplet-complete" : "",
+      ].join(" ")}
     >
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-[15%] top-[18%] aspect-square rounded-full bg-[#d8b66c]/10 blur-3xl"
+        className="rosary-chaplet-light"
       />
+      <p aria-live="polite" className="sr-only" id={statusId}>
+        {status}
+      </p>
 
-      <header className="relative z-10 border-b border-[#416a5c]/80 px-5 py-5 sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#e7c978]">
-              The living chaplet
-            </p>
-            <h2
-              className="mt-2 font-serif text-2xl font-semibold text-[#fff8e7]"
-              id={`${gradientId}-chaplet-title`}
-            >
-              {finished ? "Every bead has been offered." : step.title}
-            </h2>
-          </div>
-          <span className="rounded-full border border-[#d8b66c]/50 bg-[#071f19]/55 px-3 py-1.5 text-xs font-bold text-[#f2d991]">
-            {visualProgress.completedBeads} / 59 beads
-          </span>
-        </div>
-        {currentMystery ? (
-          <p className="mt-3 text-xs font-bold uppercase tracking-[0.12em] text-[#e7c978]">
-            {currentMystery.title} · {currentMystery.scripture}
-          </p>
-        ) : null}
-        <p
-          className={`${currentMystery ? "mt-2" : "mt-3"} text-sm leading-6 text-[#d9cda9]`}
-          id={statusId}
-        >
-          {status}
-        </p>
-      </header>
-
-      <div className="relative z-10 mx-auto w-full max-w-[35rem] px-2 pb-1 pt-3 sm:px-4">
-        <div className="relative aspect-[16/21] w-full">
+      <div className="rosary-beads-frame">
+        <div className="rosary-beads-stage">
           <svg
             aria-hidden="true"
             className="absolute inset-0 size-full overflow-visible"
@@ -203,9 +178,9 @@ export function RosaryBeads({
                 id={`${gradientId}-garnet`}
                 r="72%"
               >
-                <stop offset="0" stopColor="#c65e5e" />
-                <stop offset="0.4" stopColor="#8d292e" />
-                <stop offset="1" stopColor="#3f0c12" />
+                <stop offset="0" stopColor="#d9a0aa" />
+                <stop offset="0.4" stopColor="#a86f79" />
+                <stop offset="1" stopColor="#4e2433" />
               </radialGradient>
               <radialGradient
                 cx="31%"
@@ -308,7 +283,7 @@ export function RosaryBeads({
               <circle
                 cx="320"
                 cy="270"
-                fill="#08271f"
+                fill="#0c2946"
                 fillOpacity="0.64"
                 r="67"
                 stroke="#d8b66c"
@@ -362,7 +337,7 @@ export function RosaryBeads({
                   <circle
                     cx={station.x}
                     cy={station.y}
-                    fill="#0a2b22"
+                    fill="#0c2946"
                     r="11"
                     stroke={active ? "#f7df9c" : "#9d7a3e"}
                     strokeWidth={active ? 2.5 : 1.5}
@@ -447,31 +422,10 @@ export function RosaryBeads({
           ) : null}
         </div>
       </div>
-
-      <footer className="relative z-10 border-t border-[#416a5c]/80 bg-[#061d18]/45 px-5 py-4 sm:px-6">
-        <div className="flex items-center justify-between gap-4 text-xs font-semibold">
-          <span className="text-[#e7c978]">
-            {finished
-              ? "The chaplet is complete"
-              : "Touch the illuminated bead to continue"}
-          </span>
-          <span className="text-[#d9cda9]">{progressPercent}% prayer complete</span>
-        </div>
-        <div
-          aria-hidden
-          className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#020e0b]/80"
-        >
-          <div
-            className="h-full rounded-full bg-[linear-gradient(90deg,#8f6727,#f2d88c)] transition-[width] duration-500"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[0.68rem] font-bold uppercase tracking-[0.12em] text-[#cdbb8c]">
-          <LegendSwatch className="bg-[#fff7df]" label="Awaiting" />
-          <LegendSwatch className="bg-[#d8a848]" label="Offered" />
-          <LegendSwatch className="bg-[#8d292e] ring-2 ring-[#f6d984]" label="Current" />
-        </div>
-      </footer>
+      <div className="rosary-chaplet-caption" aria-hidden>
+        <span>{finished ? "Amen" : currentMystery?.title ?? step.title}</span>
+        <span>{visualProgress.completedBeads} of 59</span>
+      </div>
     </section>
   );
 }
@@ -488,6 +442,7 @@ function BeadGlyph({
   gradientId: string;
 }) {
   const radius = bead.large ? 14 : 8;
+  const displayRadius = active ? radius + 3 : radius;
   const fill = active
     ? `url(#${gradientId}-garnet)`
     : completed
@@ -504,7 +459,7 @@ function BeadGlyph({
           cx={bead.x}
           cy={bead.y}
           fill="none"
-          r={radius + 9}
+          r={displayRadius + 9}
           stroke="#f6d984"
           strokeOpacity="0.82"
           strokeWidth="3"
@@ -516,16 +471,16 @@ function BeadGlyph({
         cy={bead.y}
         fill={fill}
         filter={active ? `url(#${gradientId}-active-glow)` : undefined}
-        r={radius}
+        r={displayRadius}
         stroke={active ? "#fff4d6" : completed ? "#f5d985" : "#9d7a3e"}
         strokeWidth={active ? 3 : bead.large ? 2.25 : 1.5}
       />
       <circle
-        cx={bead.x - radius * 0.27}
-        cy={bead.y - radius * 0.31}
+        cx={bead.x - displayRadius * 0.27}
+        cy={bead.y - displayRadius * 0.31}
         fill="#fff"
         fillOpacity={active || completed ? 0.55 : 0.72}
-        r={Math.max(1.4, radius * 0.2)}
+        r={Math.max(1.4, displayRadius * 0.2)}
       />
     </g>
   );
@@ -562,7 +517,7 @@ function CenterMedal({
             ? `url(#${gradientId}-garnet)`
             : completed
               ? `url(#${gradientId}-gold)`
-              : "#12372c"
+              : "#183c60"
         }
         stroke={active ? "#fff4d6" : "#d8b66c"}
         strokeWidth={active ? 3 : 2}
@@ -700,15 +655,6 @@ function Crucifix({
   );
 }
 
-function LegendSwatch({ className, label }: { className: string; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-2">
-      <span aria-hidden className={`size-2.5 rounded-full ${className}`} />
-      {label}
-    </span>
-  );
-}
-
 function getVisualProgress(
   step: RosaryStep,
   repetition: number,
@@ -765,9 +711,9 @@ function getVisualProgress(
 
     if (step.kind === "mystery") {
       return {
-        activeBeadOrder: decadeStartOrder,
+        activeBeadOrder: null,
         activeDecadeIndex: decadeIndex,
-        activeStation: null,
+        activeStation: "mystery",
         completedBeads: decadeStartOrder,
       };
     }
