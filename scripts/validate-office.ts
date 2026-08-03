@@ -1,12 +1,17 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { getLiturgicalDay } from "../src/lib/liturgical-calendar";
+import { createHolyClockCalendar } from "../src/lib/liturgy-hours-calendar";
 import {
+  getDueHolyClockHours,
   getDefaultHolyClockPreferences,
+  getEffectiveHolyClockSchedule,
+  getHolyClockState,
   HOLY_CLOCK_CHIMES,
   HOLY_CLOCK_HOURS,
   readHolyClockPreferences,
 } from "../src/lib/liturgy-hours-clock";
+import { getSolarTimes } from "../src/lib/solar-times";
 import { getOfficeDevotionalTexts } from "../src/lib/office-devotional-texts";
 import {
   getDailyOfficeGuides,
@@ -245,12 +250,211 @@ function validateHolyClock() {
     }),
   );
   assert(
-    migrated.version === 2 &&
+    migrated.version === 3 &&
       migrated.remindersEnabled &&
       migrated.times.morning_prayer === "07:15" &&
-      migrated.chimeId === defaults.chimeId,
+      migrated.chimeId === defaults.chimeId &&
+      !migrated.solar.enabled &&
+      migrated.solar.officeReadingsLeadMinutes === 45,
     "Version-one Holy Clock settings must migrate without losing reminders or custom times",
   );
+
+  const migratedV2 = readHolyClockPreferences(
+    JSON.stringify({
+      version: 2,
+      remindersEnabled: false,
+      soundEnabled: false,
+      chimeId: "chime_04",
+      soundVolume: 0.4,
+      times: { ...defaults.times, evening_prayer: "19:10" },
+    }),
+  );
+  assert(
+    migratedV2.version === 3 &&
+      !migratedV2.soundEnabled &&
+      migratedV2.chimeId === "chime_04" &&
+      migratedV2.times.evening_prayer === "19:10" &&
+      !migratedV2.solar.enabled,
+    "Version-two Holy Clock settings must migrate with fixed times intact",
+  );
+
+  const buffaloPreferences = getBuffaloSolarPreferences();
+  const buffaloSchedule = getEffectiveHolyClockSchedule(
+    { year: 2026, month: 8, day: 3 },
+    buffaloPreferences,
+    "America/New_York",
+  );
+  assert(
+    buffaloSchedule.solarAligned &&
+      buffaloSchedule.sunrise === "06:09" &&
+      buffaloSchedule.sunset === "20:34" &&
+      buffaloSchedule.times.office_readings === "05:24" &&
+      buffaloSchedule.times.morning_prayer === "06:09" &&
+      buffaloSchedule.times.evening_prayer === "20:34",
+    "Buffalo on August 3, 2026 must ring Office 45 minutes before the 06:09 sunrise and Vespers at the 20:34 sunset",
+  );
+
+  const travelSchedule = getEffectiveHolyClockSchedule(
+    { year: 2026, month: 8, day: 3 },
+    buffaloPreferences,
+    "Europe/Rome",
+  );
+  assert(
+    !travelSchedule.solarAligned &&
+      travelSchedule.solarStatus === "timezone-mismatch" &&
+      travelSchedule.times.office_readings ===
+        buffaloPreferences.times.office_readings,
+    "Travel across time zones must retain safe fixed alarms until location is refreshed",
+  );
+
+  const polarPreferences = getDefaultHolyClockPreferences();
+  polarPreferences.solar = {
+    enabled: true,
+    latitude: 68.36,
+    longitude: 23.43,
+    accuracyMeters: null,
+    timeZone: "Europe/Helsinki",
+    capturedAt: "2026-06-21T12:00:00.000Z",
+    officeReadingsLeadMinutes: 45,
+  };
+  const polarSchedule = getEffectiveHolyClockSchedule(
+    { year: 2026, month: 6, day: 21 },
+    polarPreferences,
+    "Europe/Helsinki",
+  );
+  assert(
+    !polarSchedule.solarAligned &&
+      polarSchedule.solarStatus === "polar-day" &&
+      polarSchedule.times.morning_prayer ===
+        polarPreferences.times.morning_prayer,
+    "Midnight sun must preserve the saved fixed prayer schedule",
+  );
+
+  const postSunriseState = getHolyClockState(
+    new Date("2026-08-03T10:10:00Z"),
+    buffaloPreferences,
+    "America/New_York",
+  );
+  assert(
+    postSunriseState.current.hour.id === "morning_prayer" &&
+      postSunriseState.next.hour.id === "midmorning_prayer",
+    "The solar Holy Clock must advance from Lauds to Terce after sunrise",
+  );
+
+  const lateState = getHolyClockState(
+    new Date("2026-08-04T03:00:00Z"),
+    buffaloPreferences,
+    "America/New_York",
+  );
+  const tomorrowSchedule = getEffectiveHolyClockSchedule(
+    { year: 2026, month: 8, day: 4 },
+    buffaloPreferences,
+    "America/New_York",
+  );
+  assert(
+    lateState.next.hour.id === "office_readings" &&
+      lateState.next.time === tomorrowSchedule.times.office_readings &&
+      lateState.next.dayOffset === 1,
+    "The next pre-dawn bell must use tomorrow's changing sunrise",
+  );
+
+  const collisionPreferences = getDefaultHolyClockPreferences();
+  collisionPreferences.times.office_readings = "06:00";
+  collisionPreferences.times.morning_prayer = "06:00";
+  assert(
+    getDueHolyClockHours(
+      new Date("2026-08-03T10:00:15Z"),
+      collisionPreferences,
+      "America/New_York",
+    ).length === 2,
+    "Two Hours assigned to the same minute must both ring",
+  );
+
+  validateSolarFixtures();
+}
+
+function getBuffaloSolarPreferences() {
+  const preferences = getDefaultHolyClockPreferences();
+  preferences.solar = {
+    enabled: true,
+    latitude: 42.886404,
+    longitude: -78.878102,
+    accuracyMeters: 50,
+    timeZone: "America/New_York",
+    capturedAt: "2026-08-03T12:00:00.000Z",
+    officeReadingsLeadMinutes: 45,
+  };
+  return preferences;
+}
+
+function validateSolarFixtures() {
+  const fixtures = [
+    {
+      date: { year: 2026, month: 8, day: 2 },
+      latitude: 40.65,
+      longitude: -73.7833,
+      timeZone: "America/New_York",
+      sunrise: "05:53",
+      sunset: "20:09",
+    },
+    {
+      date: { year: 2026, month: 6, day: 21 },
+      latitude: 40.67999,
+      longitude: 14.76998,
+      timeZone: "Europe/Rome",
+      sunrise: "05:30",
+      sunset: "20:35",
+    },
+    {
+      date: { year: 2026, month: 6, day: 21 },
+      latitude: 59.33,
+      longitude: 18.06,
+      timeZone: "Europe/Stockholm",
+      sunrise: "03:31",
+      sunset: "22:08",
+    },
+  ] as const;
+
+  for (const fixture of fixtures) {
+    const solarTimes = getSolarTimes(
+      fixture.date,
+      fixture.latitude,
+      fixture.longitude,
+    );
+    assert(
+      solarTimes.status === "normal" &&
+        formatFixtureTime(solarTimes.sunrise, fixture.timeZone) ===
+          fixture.sunrise &&
+        formatFixtureTime(solarTimes.sunset, fixture.timeZone) === fixture.sunset,
+      `Solar calculation must match the official ${fixture.timeZone} fixture`,
+    );
+  }
+
+  assert(
+    getSolarTimes(
+      { year: 2026, month: 6, day: 21 },
+      68.36,
+      23.43,
+    ).status === "polar-day",
+    "The solar clock must recognize midnight sun",
+  );
+  assert(
+    getSolarTimes(
+      { year: 2026, month: 2, day: 9 },
+      78.05556,
+      14.22111,
+    ).status === "polar-night",
+    "The solar clock must recognize polar night",
+  );
+}
+
+function formatFixtureTime(date: Date, timeZone: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
 }
 
 async function validatePrayerChimes() {
@@ -306,6 +510,59 @@ async function validateCalendarAlarms() {
       `${hour.name} calendar alarm must open its exact prayer anchor`,
     );
   }
+
+  const startDate = new Date("2026-08-03T12:00:00Z");
+  const solarCalendar = createHolyClockCalendar(
+    startDate,
+    getBuffaloSolarPreferences(),
+    "America/New_York",
+    "https://council-of-saints.vercel.app",
+  );
+  const solarEventCount = solarCalendar.match(/BEGIN:VEVENT/g)?.length ?? 0;
+  const solarAlarmCount = solarCalendar.match(/BEGIN:VALARM/g)?.length ?? 0;
+  const solarRecurrenceCount =
+    solarCalendar.match(/RRULE:FREQ=DAILY/g)?.length ?? 0;
+  const solarUids = [...solarCalendar.matchAll(/^UID:(.+)\r$/gm)].map(
+    (match) => match[1],
+  );
+  assert(
+    solarEventCount === 1_102 &&
+      solarAlarmCount === solarEventCount &&
+      solarRecurrenceCount === 4 &&
+      new Set(solarUids).size === solarEventCount,
+    "The solar calendar must contain 366 dated dawn/sunset triplets, four recurring Hours, unique IDs, and an alarm for every event",
+  );
+  assert(
+    solarCalendar.includes(
+      "DTSTART;TZID=America/New_York:20260803T052400",
+    ) &&
+      solarCalendar.includes(
+        "DTSTART;TZID=America/New_York:20260803T060900",
+      ) &&
+      solarCalendar.includes(
+        "DTSTART;TZID=America/New_York:20260803T203400",
+      ),
+    "The exported Buffalo calendar must preserve the pre-dawn, sunrise, and sunset alarms",
+  );
+  assert(
+    solarCalendar
+      .split("\r\n")
+      .every((line) => Buffer.byteLength(line, "utf8") <= 75),
+    "Every physical calendar line must remain within the 75-octet RFC limit",
+  );
+
+  const fixedCalendar = createHolyClockCalendar(
+    startDate,
+    getDefaultHolyClockPreferences(),
+    "America/New_York",
+    "https://council-of-saints.vercel.app",
+  );
+  assert(
+    (fixedCalendar.match(/BEGIN:VEVENT/g)?.length ?? 0) === 7 &&
+      (fixedCalendar.match(/BEGIN:VALARM/g)?.length ?? 0) === 7 &&
+      (fixedCalendar.match(/RRULE:FREQ=DAILY/g)?.length ?? 0) === 7,
+    "Fixed-time calendar export must retain seven daily alarms",
+  );
 }
 
 async function validatePassage(scripturePassage: {

@@ -7,10 +7,9 @@ import {
   formatHolyClockCountdown,
   getDefaultHolyClockPreferences,
   getHolyClockState,
-  HOLY_CLOCK_LEGACY_STORAGE_KEY,
+  isHolyClockStorageKey,
   HOLY_CLOCK_PREFERENCES_EVENT,
-  HOLY_CLOCK_STORAGE_KEY,
-  readHolyClockPreferences,
+  readHolyClockPreferencesFromStorage,
   type HolyClockPreferences,
 } from "@/lib/liturgy-hours-clock";
 
@@ -42,10 +41,7 @@ export function MiniHolyClock() {
       setPreferences(changedPreferences ?? readSavedPreferences());
     };
     const handleStorage = (event: StorageEvent) => {
-      if (
-        event.key === HOLY_CLOCK_STORAGE_KEY ||
-        event.key === HOLY_CLOCK_LEGACY_STORAGE_KEY
-      ) {
+      if (isHolyClockStorageKey(event.key)) {
         loadPreferences();
       }
     };
@@ -68,8 +64,8 @@ export function MiniHolyClock() {
   }, []);
 
   const clockState = useMemo(
-    () => (now ? getHolyClockState(now, preferences.times) : null),
-    [now, preferences.times],
+    () => (now ? getHolyClockState(now, preferences) : null),
+    [now, preferences],
   );
   const currentHour = clockState?.current.hour;
   const nextHour = clockState?.next.hour;
@@ -99,7 +95,7 @@ export function MiniHolyClock() {
           dayProgress={clockState?.dayProgress ?? 0}
           holographic
           nextHourId={clockState?.next.hour.id ?? null}
-          times={preferences.times}
+          times={clockState?.effectiveSchedule.times ?? preferences.times}
         />
 
         <div className="pointer-events-none absolute inset-[27%] flex flex-col items-center justify-center rounded-full border border-[var(--gilt)]/30 bg-[rgba(5,22,16,0.67)] px-2 text-center shadow-[inset_0_0_28px_rgba(211,177,99,0.08),0_0_34px_rgba(211,177,99,0.1)] backdrop-blur-md">
@@ -144,10 +140,7 @@ export function MiniHolyClock() {
 
 function readSavedPreferences() {
   try {
-    return readHolyClockPreferences(
-      window.localStorage.getItem(HOLY_CLOCK_STORAGE_KEY) ??
-        window.localStorage.getItem(HOLY_CLOCK_LEGACY_STORAGE_KEY),
-    );
+    return readHolyClockPreferencesFromStorage(window.localStorage);
   } catch {
     return getDefaultHolyClockPreferences();
   }

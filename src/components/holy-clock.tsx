@@ -4,16 +4,22 @@ import {
   Bell,
   BellOff,
   CalendarPlus,
+  LocateFixed,
+  RefreshCw,
   RotateCcw,
+  Sunrise,
+  Sunset,
   Volume2,
 } from "lucide-react";
 import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useHolyClockAlarm } from "@/components/holy-clock-alarm-provider";
+import { createHolyClockCalendar } from "@/lib/liturgy-hours-calendar";
 import {
   formatHolyClockCountdown,
   getDefaultHolyClockPreferences,
@@ -22,11 +28,13 @@ import {
   getHolyClockState,
   HOLY_CLOCK_CHIMES,
   HOLY_CLOCK_HOURS,
-  HOLY_CLOCK_LEGACY_STORAGE_KEY,
+  HOLY_CLOCK_LEGACY_STORAGE_KEYS,
   HOLY_CLOCK_PREFERENCES_EVENT,
   HOLY_CLOCK_STORAGE_KEY,
+  isHolyClockSolarHour,
+  isHolyClockStorageKey,
   isHolyClockTime,
-  readHolyClockPreferences,
+  readHolyClockPreferencesFromStorage,
   type HolyClockChimeId,
   type HolyClockHourId,
   type HolyClockPreferences,
@@ -51,6 +59,7 @@ const HOUR_RADIUS = 128;
 const OUTER_CIRCUMFERENCE = 2 * Math.PI * 146;
 
 type PermissionState = NotificationPermission | "unsupported";
+type LocationState = "idle" | "locating" | "error";
 
 export function HolyClock() {
   const [now, setNow] = useState<Date | null>(null);
@@ -59,6 +68,9 @@ export function HolyClock() {
   );
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  const [locationState, setLocationState] = useState<LocationState>("idle");
+  const [locationMessage, setLocationMessage] = useState("");
+  const preferencesRef = useRef(preferences);
   const { playingChimeId, playChime, stopChime } = useHolyClockAlarm();
 
   useEffect(() => {
@@ -73,7 +85,9 @@ export function HolyClock() {
 
   useEffect(() => {
     const loadPreferences = () => {
-      setPreferences(readSavedPreferences());
+      const savedPreferences = readSavedPreferences();
+      preferencesRef.current = savedPreferences;
+      setPreferences(savedPreferences);
       setHasLoadedPreferences(true);
     };
     const initialLoad = window.setTimeout(loadPreferences, 0);
@@ -83,6 +97,7 @@ export function HolyClock() {
         event as CustomEvent<HolyClockPreferences>
       ).detail;
       if (changedPreferences) {
+        preferencesRef.current = changedPreferences;
         setPreferences(changedPreferences);
         setHasLoadedPreferences(true);
       } else {
@@ -90,10 +105,7 @@ export function HolyClock() {
       }
     };
     const handleStorage = (event: StorageEvent) => {
-      if (
-        event.key === HOLY_CLOCK_STORAGE_KEY ||
-        event.key === HOLY_CLOCK_LEGACY_STORAGE_KEY
-      ) {
+      if (isHolyClockStorageKey(event.key)) {
         loadPreferences();
       }
     };
@@ -114,19 +126,23 @@ export function HolyClock() {
   }, []);
 
   const clockState = useMemo(
-    () => (now ? getHolyClockState(now, preferences.times) : null),
-    [now, preferences.times],
+    () => (now ? getHolyClockState(now, preferences) : null),
+    [now, preferences],
   );
+  const effectiveSchedule = clockState?.effectiveSchedule;
 
   const persistPreferences = useCallback(
     (nextPreferences: HolyClockPreferences) => {
+      preferencesRef.current = nextPreferences;
       setPreferences(nextPreferences);
       try {
         window.localStorage.setItem(
           HOLY_CLOCK_STORAGE_KEY,
           JSON.stringify(nextPreferences),
         );
-        window.localStorage.removeItem(HOLY_CLOCK_LEGACY_STORAGE_KEY);
+        for (const key of HOLY_CLOCK_LEGACY_STORAGE_KEYS) {
+          window.localStorage.removeItem(key);
+        }
       } catch {
         setAnnouncement(
           "The clock is updated for this visit, but this browser could not save it.",
@@ -219,9 +235,101 @@ export function HolyClock() {
     persistPreferences({
       ...preferences,
       times: getDefaultHolyClockTimes(),
+      solar: { ...preferences.solar, enabled: false },
     });
-    setAnnouncement("Traditional prayer times restored.");
+    setAnnouncement("Traditional fixed prayer times restored.");
   }, [persistPreferences, preferences]);
+
+  const alignWithDaylight = useCallback(() => {
+    if (!("geolocation" in navigator)) {
+      setLocationState("error");
+      setLocationMessage("Location is unavailable on this device.");
+      setAnnouncement("Location is unavailable on this device.");
+      return;
+    }
+
+    setLocationState("locating");
+    setLocationMessage("");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const currentPreferences = preferencesRef.current;
+        const resolvedTimeZone =
+          Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+        const latitude = Number(position.coords.latitude.toFixed(5));
+        const longitude = Number(position.coords.longitude.toFixed(5));
+        persistPreferences({
+          ...currentPreferences,
+          solar: {
+            ...currentPreferences.solar,
+            enabled: true,
+            latitude,
+            longitude,
+            accuracyMeters: Number.isFinite(position.coords.accuracy)
+              ? Math.round(position.coords.accuracy)
+              : null,
+            timeZone: resolvedTimeZone,
+            capturedAt: new Date(position.timestamp || Date.now()).toISOString(),
+          },
+        });
+        setLocationState("idle");
+        setLocationMessage("");
+        setAnnouncement(
+          `The Hours now follow local daylight. Office of Readings begins ${currentPreferences.solar.officeReadingsLeadMinutes} minutes before sunrise.`,
+        );
+      },
+      (error) => {
+        const message =
+          error.code === error.PERMISSION_DENIED
+            ? "Allow location to align the Hours with sunrise and sunset."
+            : "The sun could not be located. Try again in a moment.";
+        setLocationState("error");
+        setLocationMessage(message);
+        setAnnouncement(message);
+      },
+      {
+        enableHighAccuracy: false,
+        maximumAge: 6 * 60 * 60 * 1_000,
+        timeout: 15_000,
+      },
+    );
+  }, [persistPreferences]);
+
+  const toggleDaylightAlignment = useCallback(() => {
+    if (
+      preferences.solar.latitude === null ||
+      preferences.solar.longitude === null
+    ) {
+      alignWithDaylight();
+      return;
+    }
+
+    const enabled = !preferences.solar.enabled;
+    persistPreferences({
+      ...preferences,
+      solar: { ...preferences.solar, enabled },
+    });
+    setAnnouncement(
+      enabled
+        ? "The Hours follow local daylight."
+        : "The Hours use your fixed times.",
+    );
+  }, [alignWithDaylight, persistPreferences, preferences]);
+
+  const updateOfficeReadingsLead = useCallback(
+    (officeReadingsLeadMinutes: number) => {
+      persistPreferences({
+        ...preferences,
+        solar: {
+          ...preferences.solar,
+          officeReadingsLeadMinutes,
+        },
+      });
+      setAnnouncement(
+        `Office of Readings will ring ${officeReadingsLeadMinutes} minutes before sunrise.`,
+      );
+    },
+    [persistPreferences, preferences],
+  );
 
   const toggleChimeSound = useCallback(() => {
     const soundEnabled = !preferences.soundEnabled;
@@ -259,7 +367,7 @@ export function HolyClock() {
   const downloadCalendarAlarms = useCallback(() => {
     const calendar = createHolyClockCalendar(
       now ?? new Date(),
-      preferences.times,
+      preferences,
       timeZone,
       window.location.origin,
     );
@@ -275,7 +383,7 @@ export function HolyClock() {
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
     setAnnouncement("Device calendar alarms prepared.");
-  }, [now, preferences.times, timeZone]);
+  }, [now, preferences, timeZone]);
 
   return (
     <section
@@ -310,7 +418,7 @@ export function HolyClock() {
                 currentHourId={clockState?.current.hour.id ?? null}
                 dayProgress={clockState?.dayProgress ?? 0}
                 nextHourId={clockState?.next.hour.id ?? null}
-                times={preferences.times}
+                times={effectiveSchedule?.times ?? preferences.times}
               />
             ) : (
               <div
@@ -362,7 +470,9 @@ export function HolyClock() {
           <div className="flex flex-col gap-4 border-b border-hairline pb-6 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--accent)]">
-                Today&apos;s traditional rhythm
+                {effectiveSchedule?.solarAligned
+                  ? "Today follows sacred light"
+                  : "Today’s traditional rhythm"}
               </p>
               <p className="mt-2 font-serif text-2xl font-semibold text-foreground">
                 {now ? DATE_FORMATTER.format(now) : "The daily Hours"}
@@ -387,10 +497,147 @@ export function HolyClock() {
             </button>
           </div>
 
+          <section className="relative mt-5 overflow-hidden rounded-2xl border border-gilt/35 bg-sanctuary-night p-4 text-vellum shadow-[0_16px_40px_rgb(10_32_26/0.14)] sm:p-5">
+            <div
+              aria-hidden
+              className="absolute inset-0 bg-[radial-gradient(circle_at_82%_0%,rgba(244,208,126,0.22),transparent_42%),linear-gradient(120deg,transparent,rgba(255,255,255,0.035))]"
+            />
+            <div className="relative">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-gilt/40 bg-gilt/10 text-[var(--gilt-light)]">
+                    <Sunrise aria-hidden className="size-5" />
+                  </span>
+                  <div>
+                    <p className="text-[0.62rem] font-bold uppercase tracking-[0.2em] text-gilt">
+                      Sacred light
+                    </p>
+                    <h3 className="mt-1 font-serif text-xl font-semibold text-vellum">
+                      Dawn orders the Hours
+                    </h3>
+                  </div>
+                </div>
+                {effectiveSchedule?.solarAligned ? (
+                  <span className="rounded-full border border-gilt/35 bg-gilt/10 px-3 py-1 text-[0.62rem] font-bold uppercase tracking-[0.14em] text-[var(--gilt-light)]">
+                    Aligned
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <SolarMoment
+                  icon={<LocateFixed aria-hidden className="size-3.5" />}
+                  label="Pre-dawn"
+                  time={
+                    effectiveSchedule?.times.office_readings ??
+                    preferences.times.office_readings
+                  }
+                />
+                <SolarMoment
+                  icon={<Sunrise aria-hidden className="size-3.5" />}
+                  label="Sunrise"
+                  time={effectiveSchedule?.sunrise ?? "—"}
+                />
+                <SolarMoment
+                  icon={<Sunset aria-hidden className="size-3.5" />}
+                  label="Sunset"
+                  time={effectiveSchedule?.sunset ?? "—"}
+                />
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                <label className="block">
+                  <span className="text-[0.65rem] font-bold uppercase tracking-[0.14em] text-vellum/60">
+                    Office begins before sunrise
+                  </span>
+                  <select
+                    className="mt-1.5 min-h-11 w-full rounded-xl border border-vellum/15 bg-vellum/[0.08] px-3 text-sm font-bold text-vellum outline-none transition focus:border-gilt"
+                    onChange={(event) =>
+                      updateOfficeReadingsLead(Number(event.currentTarget.value))
+                    }
+                    value={preferences.solar.officeReadingsLeadMinutes}
+                  >
+                    {[30, 45, 60, 90].map((minutes) => (
+                      <option className="bg-sanctuary-night" key={minutes} value={minutes}>
+                        {minutes} minutes before
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    aria-pressed={
+                      preferences.solar.enabled &&
+                      effectiveSchedule?.solarStatus !== "timezone-mismatch"
+                    }
+                    className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--gilt-light)] px-4 text-sm font-bold text-sanctuary-night transition hover:bg-white sm:flex-none"
+                    disabled={locationState === "locating"}
+                    onClick={
+                      effectiveSchedule?.solarStatus === "timezone-mismatch" ||
+                      effectiveSchedule?.solarStatus === "unconfigured"
+                        ? alignWithDaylight
+                        : toggleDaylightAlignment
+                    }
+                    type="button"
+                  >
+                    {locationState === "locating" ? (
+                      <RefreshCw aria-hidden className="size-4 animate-spin" />
+                    ) : (
+                      <LocateFixed aria-hidden className="size-4" />
+                    )}
+                    {locationState === "locating"
+                      ? "Finding dawn"
+                      : effectiveSchedule?.solarStatus === "timezone-mismatch"
+                        ? "Refresh location"
+                        : preferences.solar.enabled
+                          ? "Use fixed times"
+                          : "Follow daylight"}
+                  </button>
+                  {preferences.solar.latitude !== null &&
+                  preferences.solar.longitude !== null &&
+                  effectiveSchedule?.solarAligned ? (
+                    <button
+                      aria-label="Refresh daylight location"
+                      className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl border border-vellum/20 text-vellum/75 transition hover:border-gilt hover:text-[var(--gilt-light)]"
+                      disabled={locationState === "locating"}
+                      onClick={alignWithDaylight}
+                      title="Refresh location"
+                      type="button"
+                    >
+                      <RefreshCw aria-hidden className="size-4" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              {effectiveSchedule?.solarStatus === "polar-day" ||
+              effectiveSchedule?.solarStatus === "polar-night" ? (
+                <p className="mt-3 text-xs leading-5 text-vellum/65">
+                  The sun does not cross the horizon today; fixed Hours remain.
+                </p>
+              ) : locationState === "error" && locationMessage ? (
+                <p className="mt-3 text-xs leading-5 text-[var(--gilt-light)]">
+                  {locationMessage}
+                </p>
+              ) : effectiveSchedule?.solarAligned ? (
+                <p className="mt-3 text-xs leading-5 text-vellum/65">
+                  Officium lectionis rings {preferences.solar.officeReadingsLeadMinutes} minutes before dawn. Lauds rises with the sun; Vespers greets its setting.
+                </p>
+              ) : (
+                <p className="mt-3 text-xs leading-5 text-vellum/65">
+                  Use this device’s location once; the sun is calculated here each day.
+                </p>
+              )}
+            </div>
+          </section>
+
           <ol aria-label="Liturgy of the Hours schedule" className="mt-4">
             {HOLY_CLOCK_HOURS.map((hour, index) => {
               const isCurrent = clockState?.current.hour.id === hour.id;
               const isNext = clockState?.next.hour.id === hour.id;
+              const isSolarControlled =
+                effectiveSchedule?.solarAligned &&
+                isHolyClockSolarHour(hour.id);
 
               return (
                 <li
@@ -431,6 +678,11 @@ export function HolyClock() {
                           Next
                         </span>
                       ) : null}
+                      {isSolarControlled ? (
+                        <span className="text-[0.58rem] font-bold uppercase tracking-[0.12em] text-oxblood">
+                          Sun
+                        </span>
+                      ) : null}
                     </span>
                     <span className="mt-0.5 block text-xs leading-5 text-muted">
                       {hour.canonicalWindow}
@@ -441,12 +693,16 @@ export function HolyClock() {
                       Reminder time for {hour.name}
                     </span>
                     <input
-                      className="min-h-10 w-[5.75rem] rounded-lg border border-hairline bg-vellum px-2 font-mono text-sm font-bold text-foreground transition hover:border-ecclesial-green focus:border-ecclesial-green"
+                      className="min-h-10 w-[5.75rem] rounded-lg border border-hairline bg-vellum px-2 font-mono text-sm font-bold text-foreground transition hover:border-ecclesial-green focus:border-ecclesial-green disabled:cursor-not-allowed disabled:border-gilt/30 disabled:bg-gilt/[0.08] disabled:text-oxblood"
+                      disabled={Boolean(isSolarControlled)}
                       onChange={(event) =>
                         updateTime(hour.id, event.currentTarget.value)
                       }
                       type="time"
-                      value={preferences.times[hour.id]}
+                      value={
+                        effectiveSchedule?.times[hour.id] ??
+                        preferences.times[hour.id]
+                      }
                     />
                   </label>
                 </li>
@@ -609,66 +865,26 @@ export function HolyClock() {
   );
 }
 
-function createHolyClockCalendar(
-  date: Date,
-  times: HolyClockPreferences["times"],
-  timeZone: string,
-  origin: string,
-) {
-  const calendarDate = [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0"),
-  ].join("");
-  const generatedAt = new Date()
-    .toISOString()
-    .replace(/\.\d{3}Z$/, "Z")
-    .replaceAll(/[-:]/g, "");
-  const events = HOLY_CLOCK_HOURS.flatMap((hour) => {
-    const start = times[hour.id].replace(":", "") + "00";
-    const summary = escapeCalendarText(`${hour.traditionalName} · ${hour.name}`);
-    const description = escapeCalendarText(`Open Sanctum Council and pray ${hour.name}.`);
-    const url = `${origin}/${hour.anchor}`;
-
-    return [
-      "BEGIN:VEVENT",
-      `UID:sanctum-council-${hour.id}@sanctum-council`,
-      `DTSTAMP:${generatedAt}`,
-      `DTSTART;TZID=${timeZone}:${calendarDate}T${start}`,
-      "DURATION:PT15M",
-      "RRULE:FREQ=DAILY",
-      `SUMMARY:${summary}`,
-      `DESCRIPTION:${description}`,
-      `URL:${url}`,
-      "BEGIN:VALARM",
-      "TRIGGER:PT0M",
-      "ACTION:DISPLAY",
-      `DESCRIPTION:${summary}`,
-      "END:VALARM",
-      "END:VEVENT",
-    ];
-  });
-
-  return [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "CALSCALE:GREGORIAN",
-    "METHOD:PUBLISH",
-    "PRODID:-//Sanctum Council//Holy Clock//EN",
-    `X-WR-CALNAME:${escapeCalendarText("Sanctum Council · Holy Clock")}`,
-    `X-WR-TIMEZONE:${timeZone}`,
-    ...events,
-    "END:VCALENDAR",
-    "",
-  ].join("\r\n");
-}
-
-function escapeCalendarText(value: string) {
-  return value
-    .replaceAll("\\", "\\\\")
-    .replaceAll(";", "\\;")
-    .replaceAll(",", "\\,")
-    .replaceAll(/\r?\n/g, "\\n");
+function SolarMoment({
+  icon,
+  label,
+  time,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  time: string;
+}) {
+  return (
+    <div className="rounded-xl border border-vellum/10 bg-vellum/[0.055] px-3 py-2.5">
+      <span className="flex items-center gap-1.5 text-[0.58rem] font-bold uppercase tracking-[0.13em] text-vellum/55">
+        {icon}
+        {label}
+      </span>
+      <span className="mt-1.5 block font-mono text-base font-bold text-[var(--gilt-light)]">
+        {time}
+      </span>
+    </div>
+  );
 }
 
 export function HolyClockDial({
@@ -835,10 +1051,7 @@ function timeToMinutes(value: string) {
 
 function readSavedPreferences() {
   try {
-    return readHolyClockPreferences(
-      window.localStorage.getItem(HOLY_CLOCK_STORAGE_KEY) ??
-        window.localStorage.getItem(HOLY_CLOCK_LEGACY_STORAGE_KEY),
-    );
+    return readHolyClockPreferencesFromStorage(window.localStorage);
   } catch {
     return getDefaultHolyClockPreferences();
   }

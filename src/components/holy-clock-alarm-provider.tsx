@@ -11,12 +11,11 @@ import {
 } from "react";
 import {
   getDefaultHolyClockPreferences,
-  getDueHolyClockHour,
+  getDueHolyClockHours,
   getHolyClockChime,
-  HOLY_CLOCK_LEGACY_STORAGE_KEY,
+  isHolyClockStorageKey,
   HOLY_CLOCK_PREFERENCES_EVENT,
-  HOLY_CLOCK_STORAGE_KEY,
-  readHolyClockPreferences,
+  readHolyClockPreferencesFromStorage,
   type HolyClockChimeId,
   type HolyClockHour,
   type HolyClockPreferences,
@@ -63,7 +62,7 @@ export function HolyClockAlarmProvider({
   const activeGainRef = useRef<GainNode | null>(null);
   const serviceWorkerRegistrationRef =
     useRef<ServiceWorkerRegistration | null>(null);
-  const lastReminderRef = useRef("");
+  const claimedReminderKeysRef = useRef(new Set<string>());
 
   useEffect(() => {
     const loadPreferences = () => {
@@ -83,10 +82,7 @@ export function HolyClockAlarmProvider({
       }
     };
     const handleStorage = (event: StorageEvent) => {
-      if (
-        event.key === HOLY_CLOCK_STORAGE_KEY ||
-        event.key === HOLY_CLOCK_LEGACY_STORAGE_KEY
-      ) {
+      if (isHolyClockStorageKey(event.key)) {
         loadPreferences();
       }
     };
@@ -424,22 +420,31 @@ export function HolyClockAlarmProvider({
 
     const checkForReminder = () => {
       const now = new Date();
-      const dueHour = getDueHolyClockHour(now, preferences.times);
-      if (!dueHour) {
+      const dueHours = getDueHolyClockHours(now, preferences);
+      if (dueHours.length === 0) {
         return;
       }
 
-      const reminderKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}:${now.getHours()}:${now.getMinutes()}:${dueHour.id}`;
-      if (lastReminderRef.current === reminderKey) {
-        return;
-      }
-
-      lastReminderRef.current = reminderKey;
-      void claimReminder(reminderKey).then((claimed) => {
-        if (claimed) {
-          deliverReminder(dueHour, preferences);
+      const reminderMinute = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}:${now.getHours()}:${now.getMinutes()}`;
+      for (const reminderKey of claimedReminderKeysRef.current) {
+        if (!reminderKey.startsWith(`${reminderMinute}:`)) {
+          claimedReminderKeysRef.current.delete(reminderKey);
         }
-      });
+      }
+
+      for (const dueHour of dueHours) {
+        const reminderKey = `${reminderMinute}:${dueHour.id}`;
+        if (claimedReminderKeysRef.current.has(reminderKey)) {
+          continue;
+        }
+
+        claimedReminderKeysRef.current.add(reminderKey);
+        void claimReminder(reminderKey).then((claimed) => {
+          if (claimed) {
+            deliverReminder(dueHour, preferences);
+          }
+        });
+      }
     };
 
     checkForReminder();
@@ -468,10 +473,7 @@ export function HolyClockAlarmProvider({
 
 function readSavedPreferences() {
   try {
-    return readHolyClockPreferences(
-      window.localStorage.getItem(HOLY_CLOCK_STORAGE_KEY) ??
-        window.localStorage.getItem(HOLY_CLOCK_LEGACY_STORAGE_KEY),
-    );
+    return readHolyClockPreferencesFromStorage(window.localStorage);
   } catch {
     return getDefaultHolyClockPreferences();
   }
@@ -495,20 +497,42 @@ async function claimReminder(reminderKey: string) {
 
 function claimStoredReminder(reminderKey: string) {
   try {
-    if (
-      window.localStorage.getItem(HOLY_CLOCK_REMINDER_CLAIM_KEY) ===
-      reminderKey
-    ) {
+    const storedClaims = readStoredReminderClaims(
+      window.localStorage.getItem(HOLY_CLOCK_REMINDER_CLAIM_KEY),
+    );
+    if (storedClaims.includes(reminderKey)) {
       return false;
     }
+
+    const dayKey = reminderKey.slice(0, reminderKey.indexOf(":"));
+    const currentDayClaims = storedClaims.filter((claim) =>
+      claim.startsWith(`${dayKey}:`),
+    );
     window.localStorage.setItem(
       HOLY_CLOCK_REMINDER_CLAIM_KEY,
-      reminderKey,
+      JSON.stringify([...currentDayClaims, reminderKey]),
     );
   } catch {
     // A single-tab in-memory guard still protects browsers without storage.
   }
   return true;
+}
+
+function readStoredReminderClaims(storedValue: string | null): string[] {
+  if (!storedValue) {
+    return [];
+  }
+
+  try {
+    const value: unknown = JSON.parse(storedValue);
+    if (Array.isArray(value)) {
+      return value.filter((claim): claim is string => typeof claim === "string");
+    }
+  } catch {
+    // The v1 claim format stored one reminder key as a plain string.
+  }
+
+  return [storedValue];
 }
 
 function strikeBell(context: AudioContext, startTime: number, pitch: number) {

@@ -1,10 +1,25 @@
+import {
+  getSolarTimes,
+  isValidSolarCoordinates,
+  type SolarCalendarDate,
+} from "@/lib/solar-times";
+
 export const HOLY_CLOCK_STORAGE_KEY =
-  "sanctum-council:holy-clock-preferences:v2";
+  "sanctum-council:holy-clock-preferences:v3";
+export const HOLY_CLOCK_LEGACY_STORAGE_KEYS = [
+  "sanctum-council:holy-clock-preferences:v2",
+  "sanctum-council:holy-clock-preferences:v1",
+] as const;
 export const HOLY_CLOCK_LEGACY_STORAGE_KEY =
-  "sanctum-council:holy-clock-preferences:v1";
+  HOLY_CLOCK_LEGACY_STORAGE_KEYS[0];
+export const HOLY_CLOCK_STORAGE_KEYS = [
+  HOLY_CLOCK_STORAGE_KEY,
+  ...HOLY_CLOCK_LEGACY_STORAGE_KEYS,
+] as const;
 export const HOLY_CLOCK_PREFERENCES_EVENT =
   "sanctum-council:holy-clock-preferences-changed";
-export const HOLY_CLOCK_PREFERENCES_VERSION = 2 as const;
+export const HOLY_CLOCK_PREFERENCES_VERSION = 3 as const;
+export const DEFAULT_OFFICE_READINGS_LEAD_MINUTES = 45;
 
 export const HOLY_CLOCK_CHIME_IDS = [
   "chime_01",
@@ -64,7 +79,15 @@ export const HOLY_CLOCK_HOUR_IDS = [
   "night_prayer",
 ] as const;
 
+export const HOLY_CLOCK_SOLAR_HOUR_IDS = [
+  "office_readings",
+  "morning_prayer",
+  "evening_prayer",
+] as const;
+
 export type HolyClockHourId = (typeof HOLY_CLOCK_HOUR_IDS)[number];
+export type HolyClockSolarHourId =
+  (typeof HOLY_CLOCK_SOLAR_HOUR_IDS)[number];
 
 export type HolyClockHour = {
   id: HolyClockHourId;
@@ -81,7 +104,7 @@ export const HOLY_CLOCK_HOURS: readonly HolyClockHour[] = [
     name: "Office of Readings",
     traditionalName: "Officium lectionis",
     defaultTime: "05:30",
-    canonicalWindow: "At any hour; here kept as the pre-dawn watch",
+    canonicalWindow: "The pre-dawn watch, before first light",
     anchor: "#office-office_readings",
   },
   {
@@ -89,7 +112,7 @@ export const HOLY_CLOCK_HOURS: readonly HolyClockHour[] = [
     name: "Morning Prayer",
     traditionalName: "Lauds",
     defaultTime: "06:00",
-    canonicalWindow: "In the morning, near daybreak",
+    canonicalWindow: "At daybreak, when the sun rises",
     anchor: "#office-morning_prayer",
   },
   {
@@ -121,7 +144,7 @@ export const HOLY_CLOCK_HOURS: readonly HolyClockHour[] = [
     name: "Evening Prayer",
     traditionalName: "Vespers",
     defaultTime: "18:00",
-    canonicalWindow: "In the evening, as the day closes",
+    canonicalWindow: "At sunset, as the day closes",
     anchor: "#office-evening_prayer",
   },
   {
@@ -136,6 +159,16 @@ export const HOLY_CLOCK_HOURS: readonly HolyClockHour[] = [
 
 export type HolyClockTimes = Record<HolyClockHourId, string>;
 
+export type HolyClockSolarSettings = {
+  enabled: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  accuracyMeters: number | null;
+  timeZone: string | null;
+  capturedAt: string | null;
+  officeReadingsLeadMinutes: number;
+};
+
 export type HolyClockPreferences = {
   version: typeof HOLY_CLOCK_PREFERENCES_VERSION;
   remindersEnabled: boolean;
@@ -143,12 +176,31 @@ export type HolyClockPreferences = {
   chimeId: HolyClockChimeId;
   soundVolume: number;
   times: HolyClockTimes;
+  solar: HolyClockSolarSettings;
+};
+
+export type HolyClockSolarStatus =
+  | "off"
+  | "unconfigured"
+  | "aligned"
+  | "timezone-mismatch"
+  | "polar-day"
+  | "polar-night";
+
+export type HolyClockEffectiveSchedule = {
+  date: SolarCalendarDate;
+  times: HolyClockTimes;
+  solarAligned: boolean;
+  solarStatus: HolyClockSolarStatus;
+  sunrise: string | null;
+  sunset: string | null;
 };
 
 export type HolyClockOccurrence = {
   hour: HolyClockHour;
   time: string;
   dayOffset: -1 | 0 | 1;
+  scheduledAt: Date;
 };
 
 export type HolyClockState = {
@@ -157,9 +209,14 @@ export type HolyClockState = {
   secondsToNext: number;
   intervalProgress: number;
   dayProgress: number;
+  effectiveSchedule: HolyClockEffectiveSchedule;
 };
 
+type HolyClockStorageReader = Pick<Storage, "getItem">;
+
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const DATE_PARTS_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+const TIME_PARTS_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
 
 export function getDefaultHolyClockTimes(): HolyClockTimes {
   return {
@@ -173,6 +230,18 @@ export function getDefaultHolyClockTimes(): HolyClockTimes {
   };
 }
 
+export function getDefaultHolyClockSolarSettings(): HolyClockSolarSettings {
+  return {
+    enabled: false,
+    latitude: null,
+    longitude: null,
+    accuracyMeters: null,
+    timeZone: null,
+    capturedAt: null,
+    officeReadingsLeadMinutes: DEFAULT_OFFICE_READINGS_LEAD_MINUTES,
+  };
+}
+
 export function getDefaultHolyClockPreferences(): HolyClockPreferences {
   return {
     version: HOLY_CLOCK_PREFERENCES_VERSION,
@@ -181,6 +250,7 @@ export function getDefaultHolyClockPreferences(): HolyClockPreferences {
     chimeId: "chime_01",
     soundVolume: 0.55,
     times: getDefaultHolyClockTimes(),
+    solar: getDefaultHolyClockSolarSettings(),
   };
 }
 
@@ -195,7 +265,7 @@ export function readHolyClockPreferences(
     const value: unknown = JSON.parse(storedValue);
     if (
       !isRecord(value) ||
-      (value.version !== 1 && value.version !== HOLY_CLOCK_PREFERENCES_VERSION)
+      (value.version !== 1 && value.version !== 2 && value.version !== 3)
     ) {
       return getDefaultHolyClockPreferences();
     }
@@ -215,9 +285,7 @@ export function readHolyClockPreferences(
       version: HOLY_CLOCK_PREFERENCES_VERSION,
       remindersEnabled: value.remindersEnabled === true,
       soundEnabled:
-        value.version === HOLY_CLOCK_PREFERENCES_VERSION
-          ? value.soundEnabled !== false
-          : defaults.soundEnabled,
+        value.version >= 2 ? value.soundEnabled !== false : defaults.soundEnabled,
       chimeId: isHolyClockChimeId(value.chimeId)
         ? value.chimeId
         : defaults.chimeId,
@@ -225,10 +293,31 @@ export function readHolyClockPreferences(
         ? value.soundVolume
         : defaults.soundVolume,
       times,
+      solar:
+        value.version === 3
+          ? readSolarSettings(value.solar)
+          : getDefaultHolyClockSolarSettings(),
     };
   } catch {
     return getDefaultHolyClockPreferences();
   }
+}
+
+export function readHolyClockPreferencesFromStorage(
+  storage: HolyClockStorageReader,
+): HolyClockPreferences {
+  for (const key of HOLY_CLOCK_STORAGE_KEYS) {
+    const storedValue = storage.getItem(key);
+    if (storedValue !== null) {
+      return readHolyClockPreferences(storedValue);
+    }
+  }
+
+  return getDefaultHolyClockPreferences();
+}
+
+export function isHolyClockStorageKey(key: string | null): boolean {
+  return key !== null && HOLY_CLOCK_STORAGE_KEYS.some((candidate) => candidate === key);
 }
 
 export function getHolyClockChime(
@@ -244,57 +333,154 @@ export function isHolyClockTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export function getHolyClockState(
-  now: Date,
-  times: HolyClockTimes,
-): HolyClockState {
-  const scheduled = HOLY_CLOCK_HOURS.map((hour, canonicalIndex) => ({
-    hour,
-    time: times[hour.id],
-    minutes: timeToMinutes(times[hour.id]),
-    canonicalIndex,
-  })).sort(
-    (left, right) =>
-      left.minutes - right.minutes ||
-      left.canonicalIndex - right.canonicalIndex,
+export function isHolyClockSolarHour(
+  hourId: HolyClockHourId,
+): hourId is HolyClockSolarHourId {
+  return HOLY_CLOCK_SOLAR_HOUR_IDS.some((candidate) => candidate === hourId);
+}
+
+export function getEffectiveHolyClockSchedule(
+  date: Date | SolarCalendarDate,
+  preferences: HolyClockPreferences,
+  timeZone = getRuntimeTimeZone(),
+): HolyClockEffectiveSchedule {
+  const targetDate =
+    date instanceof Date ? getCalendarDateInTimeZone(date, timeZone) : date;
+  const fallback = (): HolyClockEffectiveSchedule => ({
+    date: targetDate,
+    times: { ...preferences.times },
+    solarAligned: false,
+    solarStatus: getFallbackSolarStatus(preferences, timeZone),
+    sunrise: null,
+    sunset: null,
+  });
+
+  if (!preferences.solar.enabled) {
+    return fallback();
+  }
+  if (
+    !isValidSolarCoordinates(
+      preferences.solar.latitude,
+      preferences.solar.longitude,
+    ) ||
+    !preferences.solar.timeZone
+  ) {
+    return fallback();
+  }
+  if (preferences.solar.timeZone !== timeZone) {
+    return fallback();
+  }
+
+  const solarTimes = getSolarTimes(
+    targetDate,
+    preferences.solar.latitude as number,
+    preferences.solar.longitude as number,
+  );
+  if (solarTimes.status !== "normal") {
+    return {
+      ...fallback(),
+      solarStatus: solarTimes.status,
+    };
+  }
+
+  const sunrise = formatDateAsTime(solarTimes.sunrise, timeZone);
+  const sunset = formatDateAsTime(solarTimes.sunset, timeZone);
+  const officeReadings = formatDateAsTime(
+    new Date(
+      solarTimes.sunrise.getTime() -
+        preferences.solar.officeReadingsLeadMinutes * 60_000,
+    ),
+    timeZone,
   );
 
-  const nowSeconds =
-    now.getHours() * 3_600 + now.getMinutes() * 60 + now.getSeconds();
-  const currentIndex = findCurrentIndex(scheduled, nowSeconds);
-  const currentSchedule =
-    currentIndex === -1 ? scheduled[scheduled.length - 1] : scheduled[currentIndex];
-  const nextIndex =
-    currentIndex === -1
-      ? 0
-      : currentIndex === scheduled.length - 1
-        ? 0
-        : currentIndex + 1;
-  const nextSchedule = scheduled[nextIndex];
-  const currentDayOffset = currentIndex === -1 ? -1 : 0;
-  const nextDayOffset =
-    currentIndex === scheduled.length - 1 ? 1 : 0;
-  const currentStartSeconds =
-    currentSchedule.minutes * 60 + currentDayOffset * 86_400;
-  const nextStartSeconds =
-    nextSchedule.minutes * 60 + nextDayOffset * 86_400;
-  const intervalSeconds = Math.max(1, nextStartSeconds - currentStartSeconds);
-  const elapsedSeconds = Math.max(0, nowSeconds - currentStartSeconds);
+  return {
+    date: targetDate,
+    times: {
+      ...preferences.times,
+      office_readings: officeReadings,
+      morning_prayer: sunrise,
+      evening_prayer: sunset,
+    },
+    solarAligned: true,
+    solarStatus: "aligned",
+    sunrise,
+    sunset,
+  };
+}
+
+export function getHolyClockState(
+  now: Date,
+  preferences: HolyClockPreferences,
+  timeZone = getRuntimeTimeZone(),
+): HolyClockState {
+  const today = getCalendarDateInTimeZone(now, timeZone);
+  const offsets = [-1, 0, 1] as const;
+  const occurrences = offsets.flatMap((dayOffset) => {
+    const date = addCalendarDays(today, dayOffset);
+    const schedule = getEffectiveHolyClockSchedule(
+      date,
+      preferences,
+      timeZone,
+    );
+
+    return HOLY_CLOCK_HOURS.map((hour, canonicalIndex) => ({
+      hour,
+      time: schedule.times[hour.id],
+      dayOffset,
+      scheduledAt: zonedDateTimeToDate(
+        date,
+        schedule.times[hour.id],
+        timeZone,
+      ),
+      canonicalIndex,
+    }));
+  }).sort(
+    (left, right) =>
+      left.scheduledAt.getTime() - right.scheduledAt.getTime() ||
+      left.canonicalIndex - right.canonicalIndex,
+  );
+  const nowTime = now.getTime();
+  let currentIndex = -1;
+
+  for (let index = occurrences.length - 1; index >= 0; index -= 1) {
+    if (occurrences[index].scheduledAt.getTime() <= nowTime) {
+      currentIndex = index;
+      break;
+    }
+  }
+
+  const safeCurrentIndex = Math.max(0, currentIndex);
+  const current = occurrences[safeCurrentIndex];
+  const next = occurrences[Math.min(occurrences.length - 1, safeCurrentIndex + 1)];
+  const intervalMilliseconds = Math.max(
+    1,
+    next.scheduledAt.getTime() - current.scheduledAt.getTime(),
+  );
+  const elapsedMilliseconds = Math.max(
+    0,
+    nowTime - current.scheduledAt.getTime(),
+  );
+  const zonedNow = getZonedDateTimeParts(now, timeZone);
+  const daySeconds =
+    zonedNow.hour * 3_600 + zonedNow.minute * 60 + zonedNow.second;
 
   return {
-    current: {
-      hour: currentSchedule.hour,
-      time: currentSchedule.time,
-      dayOffset: currentDayOffset,
-    },
-    next: {
-      hour: nextSchedule.hour,
-      time: nextSchedule.time,
-      dayOffset: nextDayOffset,
-    },
-    secondsToNext: Math.max(0, nextStartSeconds - nowSeconds),
-    intervalProgress: Math.min(1, elapsedSeconds / intervalSeconds),
-    dayProgress: nowSeconds / 86_400,
+    current: toPublicOccurrence(current),
+    next: toPublicOccurrence(next),
+    secondsToNext: Math.max(
+      0,
+      Math.ceil((next.scheduledAt.getTime() - nowTime) / 1_000),
+    ),
+    intervalProgress: Math.min(
+      1,
+      elapsedMilliseconds / intervalMilliseconds,
+    ),
+    dayProgress: daySeconds / 86_400,
+    effectiveSchedule: getEffectiveHolyClockSchedule(
+      today,
+      preferences,
+      timeZone,
+    ),
   };
 }
 
@@ -309,33 +495,205 @@ export function formatHolyClockCountdown(totalSeconds: number): string {
     .join(":");
 }
 
-export function getDueHolyClockHour(
+export function getDueHolyClockHours(
   now: Date,
-  times: HolyClockTimes,
-): HolyClockHour | null {
-  const localTime = `${String(now.getHours()).padStart(2, "0")}:${String(
-    now.getMinutes(),
-  ).padStart(2, "0")}`;
+  preferences: HolyClockPreferences,
+  timeZone = getRuntimeTimeZone(),
+): HolyClockHour[] {
+  const schedule = getEffectiveHolyClockSchedule(now, preferences, timeZone);
+  const localTime = formatDateAsTime(now, timeZone);
 
-  return HOLY_CLOCK_HOURS.find((hour) => times[hour.id] === localTime) ?? null;
+  return HOLY_CLOCK_HOURS.filter(
+    (hour) => schedule.times[hour.id] === localTime,
+  );
 }
 
-function timeToMinutes(value: string): number {
-  const [hours, minutes] = value.split(":").map(Number);
-  return hours * 60 + minutes;
+export function getCalendarDateInTimeZone(
+  date: Date,
+  timeZone = getRuntimeTimeZone(),
+): SolarCalendarDate {
+  const parts = getDatePartsFormatter(timeZone).formatToParts(date);
+  return {
+    year: getNumericPart(parts, "year"),
+    month: getNumericPart(parts, "month"),
+    day: getNumericPart(parts, "day"),
+  };
 }
 
-function findCurrentIndex(
-  scheduled: Array<{ minutes: number }>,
-  nowSeconds: number,
-): number {
-  for (let index = scheduled.length - 1; index >= 0; index -= 1) {
-    if (scheduled[index].minutes * 60 <= nowSeconds) {
-      return index;
+export function addCalendarDays(
+  date: SolarCalendarDate,
+  days: number,
+): SolarCalendarDate {
+  const shifted = new Date(Date.UTC(date.year, date.month - 1, date.day + days));
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+  };
+}
+
+function readSolarSettings(value: unknown): HolyClockSolarSettings {
+  const defaults = getDefaultHolyClockSolarSettings();
+  if (!isRecord(value)) {
+    return defaults;
+  }
+
+  const latitude = isFiniteNumber(value.latitude) ? value.latitude : null;
+  const longitude = isFiniteNumber(value.longitude) ? value.longitude : null;
+  const coordinatesAreValid = isValidSolarCoordinates(latitude, longitude);
+  const timeZone = isValidTimeZone(value.timeZone) ? value.timeZone : null;
+
+  return {
+    enabled: value.enabled === true && coordinatesAreValid && timeZone !== null,
+    latitude: coordinatesAreValid ? latitude : null,
+    longitude: coordinatesAreValid ? longitude : null,
+    accuracyMeters:
+      isFiniteNumber(value.accuracyMeters) && value.accuracyMeters >= 0
+        ? value.accuracyMeters
+        : null,
+    timeZone,
+    capturedAt:
+      typeof value.capturedAt === "string" && value.capturedAt.length > 0
+        ? value.capturedAt
+        : null,
+    officeReadingsLeadMinutes: isValidLeadMinutes(
+      value.officeReadingsLeadMinutes,
+    )
+      ? value.officeReadingsLeadMinutes
+      : defaults.officeReadingsLeadMinutes,
+  };
+}
+
+function getFallbackSolarStatus(
+  preferences: HolyClockPreferences,
+  timeZone: string,
+): HolyClockSolarStatus {
+  if (!preferences.solar.enabled) {
+    return "off";
+  }
+  if (
+    !isValidSolarCoordinates(
+      preferences.solar.latitude,
+      preferences.solar.longitude,
+    ) ||
+    !preferences.solar.timeZone
+  ) {
+    return "unconfigured";
+  }
+  if (preferences.solar.timeZone !== timeZone) {
+    return "timezone-mismatch";
+  }
+  return "unconfigured";
+}
+
+function zonedDateTimeToDate(
+  date: SolarCalendarDate,
+  time: string,
+  timeZone: string,
+): Date {
+  const [hour, minute] = time.split(":").map(Number);
+  const desiredWallTime = Date.UTC(
+    date.year,
+    date.month - 1,
+    date.day,
+    hour,
+    minute,
+  );
+  let instant = desiredWallTime;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const actual = getZonedDateTimeParts(new Date(instant), timeZone);
+    const actualWallTime = Date.UTC(
+      actual.year,
+      actual.month - 1,
+      actual.day,
+      actual.hour,
+      actual.minute,
+      actual.second,
+    );
+    const adjustment = desiredWallTime - actualWallTime;
+    instant += adjustment;
+    if (adjustment === 0) {
+      break;
     }
   }
 
-  return -1;
+  return new Date(instant);
+}
+
+function getZonedDateTimeParts(date: Date, timeZone: string) {
+  const parts = getTimePartsFormatter(timeZone).formatToParts(date);
+  return {
+    year: getNumericPart(parts, "year"),
+    month: getNumericPart(parts, "month"),
+    day: getNumericPart(parts, "day"),
+    hour: getNumericPart(parts, "hour"),
+    minute: getNumericPart(parts, "minute"),
+    second: getNumericPart(parts, "second"),
+  };
+}
+
+function formatDateAsTime(date: Date, timeZone: string): string {
+  const parts = getZonedDateTimeParts(date, timeZone);
+  return `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
+}
+
+function getDatePartsFormatter(timeZone: string) {
+  let formatter = DATE_PARTS_FORMATTERS.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    DATE_PARTS_FORMATTERS.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+function getTimePartsFormatter(timeZone: string) {
+  let formatter = TIME_PARTS_FORMATTERS.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    });
+    TIME_PARTS_FORMATTERS.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+function getNumericPart(
+  parts: Intl.DateTimeFormatPart[],
+  type: Intl.DateTimeFormatPartTypes,
+) {
+  const value = parts.find((part) => part.type === type)?.value;
+  return Number(value);
+}
+
+function toPublicOccurrence(occurrence: {
+  hour: HolyClockHour;
+  time: string;
+  dayOffset: -1 | 0 | 1;
+  scheduledAt: Date;
+}): HolyClockOccurrence {
+  return {
+    hour: occurrence.hour,
+    time: occurrence.time,
+    dayOffset: occurrence.dayOffset,
+    scheduledAt: occurrence.scheduledAt,
+  };
+}
+
+function getRuntimeTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -351,4 +709,24 @@ function isHolyClockChimeId(value: unknown): value is HolyClockChimeId {
 
 function isHolyClockVolume(value: unknown): value is number {
   return typeof value === "number" && value >= 0.1 && value <= 1;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isValidLeadMinutes(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) >= 15 && Number(value) <= 120;
+}
+
+function isValidTimeZone(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0) {
+    return false;
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
 }
