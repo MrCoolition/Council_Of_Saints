@@ -13,6 +13,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { FormationConsole } from "@/components/formation-console";
 import { HolyClock } from "@/components/holy-clock";
+import { MiniHolyClock } from "@/components/mini-holy-clock";
 import { OfficeGuidePanels } from "@/components/office-guide-panels";
 import { formatPrayerItem } from "@/lib/domain";
 import { devotionGuides, prayers } from "@/lib/prayers";
@@ -79,7 +80,7 @@ export default async function Home() {
             className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(11,28,22,0.98)_0%,rgba(11,28,22,0.91)_52%,rgba(11,20,17,0.55)_100%)]"
           />
 
-          <div className="max-w-4xl p-6 sm:p-9 lg:p-12">
+          <div className="max-w-4xl p-6 sm:p-9 lg:p-12 xl:max-w-none xl:pr-96">
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 bg-black/20 px-3 text-sm font-semibold text-[var(--vellum)] backdrop-blur-sm">
                 <CalendarDays
@@ -121,6 +122,8 @@ export default async function Home() {
               </p>
             </div>
           </div>
+
+          <MiniHolyClock />
         </section>
 
         <HolyMassPortal data={mass} />

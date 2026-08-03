@@ -306,7 +306,7 @@ export function HolyClock() {
 
           <div className="relative mx-auto mt-5 aspect-square w-full max-w-[25rem]">
             {now && hasLoadedPreferences ? (
-              <SacredDial
+              <HolyClockDial
                 currentHourId={clockState?.current.hour.id ?? null}
                 dayProgress={clockState?.dayProgress ?? 0}
                 nextHourId={clockState?.next.hour.id ?? null}
@@ -671,14 +671,16 @@ function escapeCalendarText(value: string) {
     .replaceAll(/\r?\n/g, "\\n");
 }
 
-function SacredDial({
+export function HolyClockDial({
   currentHourId,
   dayProgress,
+  holographic = false,
   nextHourId,
   times,
 }: {
   currentHourId: HolyClockHourId | null;
   dayProgress: number;
+  holographic?: boolean;
   nextHourId: HolyClockHourId | null;
   times: HolyClockPreferences["times"];
 }) {
@@ -695,10 +697,10 @@ function SacredDial({
         cx={CLOCK_CENTER}
         cy={CLOCK_CENTER}
         fill="var(--sanctuary-night)"
-        fillOpacity="0.72"
+        fillOpacity={holographic ? 0.16 : 0.72}
         r="150"
         stroke="var(--gilt-light)"
-        strokeOpacity="0.24"
+        strokeOpacity={holographic ? 0.42 : 0.24}
         strokeWidth="1"
       />
       <circle
