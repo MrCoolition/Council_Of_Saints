@@ -2,6 +2,7 @@
 
 import {
   ArrowDown,
+  ArrowUp,
   BookOpen,
   ChevronRight,
   Church,
@@ -16,6 +17,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -1456,6 +1458,7 @@ function UsccbReadingCard({
 }) {
   const disclosureId = useId();
   const [open, setOpen] = useState(defaultOpen);
+  const disclosureButtonRef = useRef<HTMLButtonElement>(null);
   const primaryReference = section.citation
     .split(",", 1)[0]
     .trim()
@@ -1479,8 +1482,9 @@ function UsccbReadingCard({
         <button
           aria-controls={disclosureId}
           aria-expanded={open}
-          className="flex min-h-24 w-full flex-wrap items-center justify-between gap-3 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--liturgical-accent)] sm:px-8 sm:py-6"
+          className="scroll-mt-36 flex min-h-24 w-full flex-wrap items-center justify-between gap-3 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--liturgical-accent)] sm:px-8 sm:py-6"
           onClick={() => setOpen((current) => !current)}
+          ref={disclosureButtonRef}
           type="button"
         >
           <div>
@@ -1570,6 +1574,12 @@ function UsccbReadingCard({
             USCCB
           </a>
         ) : null}
+
+        <ReadingCollapseControl
+          onCollapse={() =>
+            collapseReadingAndReturn(disclosureButtonRef, setOpen)
+          }
+        />
       </div>
     </article>
   );
@@ -1721,6 +1731,7 @@ function ReadingCard({
   const readingIntroduction = getReadingIntroduction(scriptureBookId);
   const disclosureId = useId();
   const [open, setOpen] = useState(selection.title === "First Reading");
+  const disclosureButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
     <article className="illuminated-panel overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--panel)] shadow-[0_18px_56px_rgba(11,28,22,0.055)]">
@@ -1728,8 +1739,9 @@ function ReadingCard({
         <button
           aria-controls={disclosureId}
           aria-expanded={open}
-          className="flex min-h-24 w-full flex-wrap items-center justify-between gap-3 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--liturgical-accent)] sm:px-8 sm:py-6"
+          className="scroll-mt-36 flex min-h-24 w-full flex-wrap items-center justify-between gap-3 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--liturgical-accent)] sm:px-8 sm:py-6"
           onClick={() => setOpen((current) => !current)}
+          ref={disclosureButtonRef}
           type="button"
         >
           <div>
@@ -1832,6 +1844,12 @@ function ReadingCard({
             </Link>
           ))}
         </div>
+
+        <ReadingCollapseControl
+          onCollapse={() =>
+            collapseReadingAndReturn(disclosureButtonRef, setOpen)
+          }
+        />
       </div>
     </article>
   );
@@ -1841,6 +1859,7 @@ function PsalmCard({ psalm }: { psalm: HolyMassLoadedPsalm }) {
   const refrain = psalm.refrains[0] ?? null;
   const disclosureId = useId();
   const [open, setOpen] = useState(false);
+  const disclosureButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
     <article className="illuminated-panel overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--panel)] shadow-[0_18px_56px_rgba(11,28,22,0.055)]">
@@ -1848,8 +1867,9 @@ function PsalmCard({ psalm }: { psalm: HolyMassLoadedPsalm }) {
         <button
           aria-controls={disclosureId}
           aria-expanded={open}
-          className="flex min-h-24 w-full flex-wrap items-center justify-between gap-3 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--liturgical-accent)] sm:px-8 sm:py-6"
+          className="scroll-mt-36 flex min-h-24 w-full flex-wrap items-center justify-between gap-3 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--liturgical-accent)] sm:px-8 sm:py-6"
           onClick={() => setOpen((current) => !current)}
+          ref={disclosureButtonRef}
           type="button"
         >
           <div>
@@ -1914,9 +1934,56 @@ function PsalmCard({ psalm }: { psalm: HolyMassLoadedPsalm }) {
             </div>
           ))}
         </div>
+
+        <ReadingCollapseControl
+          onCollapse={() =>
+            collapseReadingAndReturn(disclosureButtonRef, setOpen)
+          }
+        />
       </div>
     </article>
   );
+}
+
+function ReadingCollapseControl({
+  onCollapse,
+}: {
+  onCollapse: () => void;
+}) {
+  return (
+    <div className="mt-10 flex justify-center border-t border-[var(--line)] pt-7">
+      <button
+        className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-[color:var(--liturgical-accent)]/35 bg-[var(--vellum)] px-5 text-sm font-bold text-[color:var(--liturgical-accent)] shadow-[0_10px_28px_rgba(11,28,22,0.06)] transition hover:-translate-y-0.5 hover:border-[color:var(--liturgical-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--liturgical-accent)]"
+        onClick={onCollapse}
+        type="button"
+      >
+        <ArrowUp aria-hidden className="size-4" />
+        Collapse and return to top
+      </button>
+    </div>
+  );
+}
+
+function collapseReadingAndReturn(
+  disclosureButtonRef: React.RefObject<HTMLButtonElement | null>,
+  setOpen: React.Dispatch<React.SetStateAction<boolean>>,
+) {
+  setOpen(false);
+
+  window.requestAnimationFrame(() => {
+    const disclosureButton = disclosureButtonRef.current;
+    if (!disclosureButton) {
+      return;
+    }
+
+    disclosureButton.focus({ preventScroll: true });
+    disclosureButton.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+      block: "start",
+    });
+  });
 }
 
 function OrderItems({
