@@ -26,6 +26,7 @@ import {
   useState,
 } from "react";
 import { RosaryBeads } from "@/components/rosary-beads";
+import { RosaryDesignPicker } from "@/components/rosary-design-picker";
 import {
   buildRosarySteps,
   getMysterySet,
@@ -37,6 +38,12 @@ import {
   type RosaryMysterySet,
   type RosaryStep,
 } from "@/lib/rosary";
+import {
+  DEFAULT_ROSARY_DESIGN_ID,
+  getRosaryDesign,
+  isRosaryDesignId,
+  type RosaryDesignId,
+} from "@/lib/rosary-designs";
 
 type RosaryGuideProps = {
   localDate: string;
@@ -72,6 +79,7 @@ type NavigatorWithWakeLock = Navigator & {
 
 const progressStorageKey = "sanctum-council:rosary-progress:v2";
 const preferencesStorageKey = "sanctum-council:rosary-preferences:v1";
+const designStorageKey = "sanctum-council:rosary-design:v1";
 
 const mysterySetIcons: Record<MysterySetId, LucideIcon> = {
   joyful: Sparkles,
@@ -97,6 +105,9 @@ export function RosaryGuide({
   );
   const [preferences, setPreferences] =
     useState<RosaryPreferences>(defaultPreferences);
+  const [designId, setDesignId] = useState<RosaryDesignId>(
+    DEFAULT_ROSARY_DESIGN_ID,
+  );
   const [ready, setReady] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [wakeLockSupported, setWakeLockSupported] = useState(false);
@@ -114,10 +125,12 @@ export function RosaryGuide({
 
       const storedProgress = readStoredProgress(localDate, recommendedSetId);
       const storedPreferences = readStoredPreferences();
+      const storedDesignId = readStoredDesignId();
       const navigatorWithWakeLock = navigator as NavigatorWithWakeLock;
 
       setProgress(storedProgress);
       setPreferences(storedPreferences);
+      setDesignId(storedDesignId);
       setFocusMode(storedProgress.started && !storedProgress.finished);
       setWakeLockSupported(Boolean(navigatorWithWakeLock.wakeLock));
       setReady(true);
@@ -151,6 +164,17 @@ export function RosaryGuide({
       ...preferences,
     });
   }, [preferences, ready]);
+
+  useEffect(() => {
+    if (!ready) {
+      return;
+    }
+
+    storeValue(designStorageKey, {
+      version: 1,
+      designId,
+    });
+  }, [designId, ready]);
 
   useEffect(() => {
     if (!focusMode) {
@@ -264,6 +288,7 @@ export function RosaryGuide({
     [progress.includeFatimaPrayer, progress.setId],
   );
   const selectedSet = getMysterySet(progress.setId);
+  const selectedDesign = getRosaryDesign(designId);
   const currentStep = steps[progress.stepIndex] ?? steps[0];
   const currentMystery = getStepMystery(selectedSet, currentStep);
 
@@ -522,10 +547,12 @@ export function RosaryGuide({
         includeFatimaPrayer={progress.includeFatimaPrayer}
         liturgicalSeason={liturgicalSeason}
         onBegin={beginRosary}
+        onSelectDesign={setDesignId}
         onSelect={selectMysterySet}
         onToggleFatima={toggleFatimaPrayer}
         ready={ready}
         recommendedSetId={recommendedSetId}
+        selectedDesignId={designId}
         selectedSetId={progress.setId}
         weekday={weekday}
       />
@@ -596,6 +623,7 @@ export function RosaryGuide({
             includeFatimaPrayer={progress.includeFatimaPrayer}
             keepAwake={preferences.keepAwake}
             onBeginAgain={beginAgain}
+            onSelectDesign={setDesignId}
             onSelectMysterySet={(setId) =>
               selectMysterySet(setId, true)
             }
@@ -608,6 +636,7 @@ export function RosaryGuide({
               }))
             }
             ref={settingsRef}
+            selectedDesignId={designId}
             selectedSetId={progress.setId}
             wakeLockSupported={wakeLockSupported}
           />
@@ -617,6 +646,7 @@ export function RosaryGuide({
       <div className="rosary-chamber-grid">
         <div className="rosary-chaplet-pane">
           <RosaryBeads
+            design={selectedDesign}
             finished={progress.finished}
             mysterySet={selectedSet}
             onAdvance={advance}
@@ -670,7 +700,9 @@ function RosaryThreshold({
   liturgicalSeason,
   includeFatimaPrayer,
   ready,
+  selectedDesignId,
   onSelect,
+  onSelectDesign,
   onToggleFatima,
   onBegin,
 }: {
@@ -680,7 +712,9 @@ function RosaryThreshold({
   liturgicalSeason: string;
   includeFatimaPrayer: boolean;
   ready: boolean;
+  selectedDesignId: RosaryDesignId;
   onSelect: (setId: MysterySetId) => void;
+  onSelectDesign: (designId: RosaryDesignId) => void;
   onToggleFatima: (include: boolean) => void;
   onBegin: () => void;
 }) {
@@ -718,6 +752,11 @@ function RosaryThreshold({
             ))}
           </div>
         </fieldset>
+
+        <RosaryDesignPicker
+          onSelect={onSelectDesign}
+          selectedDesignId={selectedDesignId}
+        />
 
         <div className="mt-8 flex flex-col gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
           <label className="inline-flex min-h-11 cursor-pointer items-center gap-3 text-sm font-semibold text-[var(--rosary-mist)]">
@@ -842,6 +881,8 @@ const RosarySettings = function RosarySettings({
   onToggleHaptics,
   onToggleKeepAwake,
   onBeginAgain,
+  onSelectDesign,
+  selectedDesignId,
 }: {
   ref: RefObject<HTMLDetailsElement | null>;
   selectedSetId: MysterySetId;
@@ -854,6 +895,8 @@ const RosarySettings = function RosarySettings({
   onToggleHaptics: () => void;
   onToggleKeepAwake: () => void;
   onBeginAgain: () => void;
+  onSelectDesign: (designId: RosaryDesignId) => void;
+  selectedDesignId: RosaryDesignId;
 }) {
   return (
     <details className="rosary-settings" ref={ref}>
@@ -886,6 +929,12 @@ const RosarySettings = function RosarySettings({
           })}
         </div>
 
+        <RosaryDesignPicker
+          compact
+          onSelect={onSelectDesign}
+          selectedDesignId={selectedDesignId}
+        />
+
         <div className="mt-4 space-y-1 border-t border-white/10 pt-3">
           <SettingsToggle
             checked={includeFatimaPrayer}
@@ -913,7 +962,7 @@ const RosarySettings = function RosarySettings({
           type="button"
         >
           <RotateCcw aria-hidden className="size-4" />
-          Begin again
+          Reset Rosary
         </button>
       </div>
     </details>
@@ -1296,6 +1345,27 @@ function readStoredPreferences(): RosaryPreferences {
     };
   } catch {
     return defaultPreferences;
+  }
+}
+
+function readStoredDesignId(): RosaryDesignId {
+  try {
+    const rawValue = window.localStorage.getItem(designStorageKey);
+
+    if (!rawValue) {
+      return DEFAULT_ROSARY_DESIGN_ID;
+    }
+
+    const parsed = JSON.parse(rawValue) as {
+      version?: unknown;
+      designId?: unknown;
+    };
+
+    return parsed.version === 1 && isRosaryDesignId(parsed.designId)
+      ? parsed.designId
+      : DEFAULT_ROSARY_DESIGN_ID;
+  } catch {
+    return DEFAULT_ROSARY_DESIGN_ID;
   }
 }
 

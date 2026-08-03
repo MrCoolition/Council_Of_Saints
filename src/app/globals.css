@@ -518,6 +518,333 @@ details > summary::-webkit-details-marker {
     0 14px 34px rgb(3 13 27 / 0.18);
 }
 
+.rosary-design-treasury {
+  margin-top: 1.65rem;
+  border-top: 1px solid rgb(255 255 255 / 0.1);
+  padding-top: 1.35rem;
+}
+
+.rosary-design-treasury-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.rosary-design-current {
+  display: inline-flex;
+  min-height: 1.85rem;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid rgb(215 182 109 / 0.34);
+  border-radius: 999px;
+  background: rgb(215 182 109 / 0.09);
+  color: var(--rosary-pearl);
+  padding: 0.25rem 0.65rem;
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.rosary-design-rail {
+  display: grid;
+  grid-auto-columns: minmax(13.5rem, 15rem);
+  grid-auto-flow: column;
+  gap: 0.65rem;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  padding: 0.15rem 0.1rem 0.65rem;
+  scroll-snap-type: inline proximity;
+  scrollbar-color: rgb(215 182 109 / 0.4) transparent;
+  scrollbar-width: thin;
+}
+
+.rosary-design-choice {
+  position: relative;
+  display: grid;
+  min-height: 7.15rem;
+  grid-template-columns: 4.7rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.8rem;
+  overflow: hidden;
+  border: 1px solid rgb(200 216 231 / 0.15);
+  border-radius: 1.15rem;
+  background:
+    radial-gradient(circle at 18% 40%, color-mix(in srgb, var(--preview-aura) 22%, transparent), transparent 4.5rem),
+    rgb(255 255 255 / 0.035);
+  padding: 0.8rem;
+  text-align: left;
+  scroll-snap-align: start;
+  transition:
+    translate 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.rosary-design-choice:hover {
+  translate: 0 -2px;
+  border-color: color-mix(in srgb, var(--preview-chain-high) 62%, transparent);
+  background:
+    radial-gradient(circle at 18% 40%, color-mix(in srgb, var(--preview-aura) 32%, transparent), transparent 4.8rem),
+    rgb(255 255 255 / 0.06);
+}
+
+.rosary-design-choice:focus-visible {
+  outline: 2px solid var(--preview-chain-high);
+  outline-offset: 2px;
+}
+
+.rosary-design-choice-active {
+  border-color: color-mix(in srgb, var(--preview-chain-high) 78%, transparent);
+  background:
+    radial-gradient(circle at 18% 40%, color-mix(in srgb, var(--preview-aura) 38%, transparent), transparent 5rem),
+    rgb(49 95 137 / 0.22);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.045),
+    0 12px 28px rgb(3 13 27 / 0.16);
+}
+
+.rosary-design-preview {
+  position: relative;
+  display: flex;
+  width: 4.7rem;
+  height: 4.35rem;
+  align-items: center;
+  justify-content: space-between;
+  filter: drop-shadow(0 5px 7px rgb(3 13 27 / 0.38));
+}
+
+.rosary-design-preview-chain {
+  position: absolute;
+  top: 50%;
+  right: 0.3rem;
+  left: 0.3rem;
+  height: 2px;
+  background: linear-gradient(90deg, var(--preview-chain-low), var(--preview-chain-high), var(--preview-chain-low));
+  box-shadow: 0 1px 0 rgb(0 0 0 / 0.38);
+}
+
+.rosary-design-preview-bead {
+  position: relative;
+  z-index: 1;
+  width: 0.62rem;
+  aspect-ratio: 1;
+  flex: none;
+  border: 1px solid var(--preview-chain-high);
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 24%, var(--preview-bead-highlight), var(--preview-bead-mid) 48%, var(--preview-bead-shadow));
+  box-shadow: 0 2px 4px rgb(0 0 0 / 0.32);
+}
+
+.rosary-design-preview-pater {
+  width: 0.9rem;
+  border-color: var(--preview-chain-high);
+  background: radial-gradient(circle at 30% 24%, var(--preview-pater-highlight), var(--preview-pater-mid) 48%, var(--preview-pater-shadow));
+}
+
+[data-bead-shape="oval"] .rosary-design-preview-bead:not(.rosary-design-preview-pater),
+[data-bead-shape="wood"] .rosary-design-preview-bead:not(.rosary-design-preview-pater) {
+  width: 0.52rem;
+  height: 0.82rem;
+  aspect-ratio: auto;
+}
+
+[data-bead-shape="faceted"] .rosary-design-preview-bead,
+[data-bead-shape="crystal"] .rosary-design-preview-bead {
+  border-radius: 0;
+  clip-path: polygon(50% 0, 92% 27%, 82% 82%, 50% 100%, 18% 82%, 8% 27%);
+}
+
+[data-bead-shape="stone"] .rosary-design-preview-bead {
+  border-radius: 48% 52% 44% 56% / 55% 44% 56% 45%;
+}
+
+[data-bead-shape="moonstone"] .rosary-design-preview-bead {
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.32),
+    0 0 0.55rem color-mix(in srgb, var(--preview-aura) 62%, transparent);
+}
+
+[data-texture="olivewood-grain"] .rosary-design-preview-bead {
+  background:
+    linear-gradient(18deg, transparent 40%, color-mix(in srgb, var(--preview-bead-shadow) 60%, transparent) 44% 48%, transparent 52%),
+    radial-gradient(circle at 30% 24%, var(--preview-bead-highlight), var(--preview-bead-mid) 48%, var(--preview-bead-shadow));
+}
+
+[data-pater-shape="diamond-cut"] .rosary-design-preview-pater,
+[data-pater-shape="rose-cut"] .rosary-design-preview-pater {
+  border-radius: 0;
+  clip-path: polygon(50% 0, 88% 16%, 100% 50%, 84% 88%, 50% 100%, 14% 88%, 0 50%, 16% 16%);
+}
+
+[data-pater-shape="grotto-cut"] .rosary-design-preview-pater {
+  border-radius: 999px 999px 0.2rem 0.2rem;
+}
+
+[data-pater-shape="heart-cut"] .rosary-design-preview-pater {
+  border-radius: 0.55rem 0.55rem 0.18rem 0.55rem;
+  rotate: 45deg;
+}
+
+[data-pater-shape="medal"] .rosary-design-preview-pater {
+  box-shadow:
+    inset 0 0 0 2px var(--preview-pater-shadow),
+    0 2px 4px rgb(0 0 0 / 0.34);
+}
+
+[data-pater-shape="chalice-cut"] .rosary-design-preview-pater {
+  border-radius: 0;
+  clip-path: polygon(20% 0, 80% 0, 96% 38%, 68% 100%, 32% 100%, 4% 38%);
+}
+
+[data-pater-shape="carved-cross"] .rosary-design-preview-pater {
+  border: 0;
+  border-radius: 0;
+  clip-path: polygon(35% 0, 65% 0, 65% 35%, 100% 35%, 100% 65%, 65% 65%, 65% 100%, 35% 100%, 35% 65%, 0 65%, 0 35%, 35% 35%);
+}
+
+[data-pater-shape="star-cut"] .rosary-design-preview-pater {
+  border-radius: 0;
+  clip-path: polygon(50% 0, 61% 28%, 85% 15%, 72% 39%, 100% 50%, 72% 61%, 85% 85%, 61% 72%, 50% 100%, 39% 72%, 15% 85%, 28% 61%, 0 50%, 28% 39%, 15% 15%, 39% 28%);
+}
+
+.rosary-design-preview-medal {
+  position: absolute;
+  bottom: -0.05rem;
+  left: 50%;
+  z-index: 2;
+  display: grid;
+  min-width: 1.25rem;
+  height: 1.1rem;
+  place-items: center;
+  translate: -50% 0;
+  border: 1px solid var(--preview-chain-high);
+  border-radius: 999px;
+  background: var(--preview-center);
+  color: var(--preview-center-text);
+  padding-inline: 0.22rem;
+  font-family: var(--font-reading);
+  font-size: 0.38rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.rosary-design-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding-right: 1.65rem;
+}
+
+.rosary-design-name {
+  overflow: hidden;
+  color: var(--rosary-pearl);
+  font-family: var(--font-reading);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rosary-design-materials,
+.rosary-design-dedication {
+  margin-top: 0.22rem;
+  color: var(--rosary-mist);
+  font-size: 0.62rem;
+  line-height: 1.35;
+}
+
+.rosary-design-dedication {
+  color: color-mix(in srgb, var(--preview-chain-high) 82%, var(--rosary-pearl));
+  font-family: var(--font-reading);
+  font-style: italic;
+}
+
+.rosary-design-check {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  display: grid;
+  width: 1.45rem;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--preview-chain-high) 75%, transparent);
+  border-radius: 999px;
+  background: rgb(3 13 27 / 0.76);
+  color: var(--preview-chain-high);
+}
+
+.rosary-design-treasury-compact {
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+}
+
+.rosary-design-treasury-compact .rosary-design-treasury-heading {
+  margin-bottom: 0.65rem;
+}
+
+.rosary-design-treasury-compact .rosary-design-rail {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-columns: auto;
+  grid-auto-flow: row;
+  gap: 0.45rem;
+  overflow: visible;
+  padding: 0;
+}
+
+.rosary-design-treasury-compact .rosary-design-choice {
+  min-height: 4.25rem;
+  grid-template-columns: 2.85rem minmax(0, 1fr);
+  gap: 0.5rem;
+  border-radius: 0.8rem;
+  padding: 0.5rem;
+}
+
+.rosary-design-treasury-compact .rosary-design-preview {
+  width: 2.85rem;
+  height: 2.7rem;
+}
+
+.rosary-design-treasury-compact .rosary-design-preview-bead {
+  width: 0.38rem;
+}
+
+.rosary-design-treasury-compact [data-bead-shape="oval"] .rosary-design-preview-bead:not(.rosary-design-preview-pater),
+.rosary-design-treasury-compact [data-bead-shape="wood"] .rosary-design-preview-bead:not(.rosary-design-preview-pater) {
+  height: 0.57rem;
+  aspect-ratio: auto;
+}
+
+.rosary-design-treasury-compact .rosary-design-preview-pater {
+  width: 0.55rem;
+}
+
+.rosary-design-treasury-compact .rosary-design-preview-medal {
+  min-width: 0.85rem;
+  height: 0.75rem;
+  font-size: 0.26rem;
+}
+
+.rosary-design-treasury-compact .rosary-design-name {
+  font-family: inherit;
+  font-size: 0.68rem;
+}
+
+.rosary-design-treasury-compact .rosary-design-copy {
+  padding-right: 1.15rem;
+}
+
+.rosary-design-treasury-compact .rosary-design-materials {
+  font-size: 0.54rem;
+}
+
+.rosary-design-treasury-compact .rosary-design-check {
+  top: 0.3rem;
+  right: 0.3rem;
+  width: 1.1rem;
+}
+
 .rosary-mystery-icon {
   display: inline-flex;
   width: 2.25rem;
@@ -673,6 +1000,12 @@ details > summary::-webkit-details-marker {
 }
 
 .rosary-chaplet {
+  --chaplet-active: #f7d77f;
+  --chaplet-aura: #88adcf;
+  --chaplet-stage-dark: #030d1b;
+  --chaplet-stage-light: #315f89;
+  --chaplet-stage-mid: #173957;
+
   position: relative;
   display: flex;
   width: 100%;
@@ -683,8 +1016,13 @@ details > summary::-webkit-details-marker {
   border: 1px solid rgb(136 173 207 / 0.13);
   border-radius: 1.4rem;
   background:
-    radial-gradient(circle at 50% 34%, rgb(49 95 137 / 0.52), transparent 32rem),
-    radial-gradient(circle at 48% 36%, #133653 0%, #071a2f 58%, #030d1b 100%);
+    radial-gradient(circle at 50% 34%, color-mix(in srgb, var(--chaplet-aura) 34%, transparent), transparent 32rem),
+    radial-gradient(
+      circle at 48% 36%,
+      color-mix(in srgb, var(--chaplet-stage-light) 18%, #0c2946) 0%,
+      color-mix(in srgb, var(--chaplet-stage-mid) 24%, #071a2f) 58%,
+      color-mix(in srgb, var(--chaplet-stage-dark) 46%, #020814) 100%
+    );
   color: var(--rosary-pearl);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.05),
@@ -695,7 +1033,7 @@ details > summary::-webkit-details-marker {
   position: absolute;
   inset: 12% 15% 16%;
   border-radius: 999px;
-  background: rgb(215 182 109 / 0.1);
+  background: color-mix(in srgb, var(--chaplet-aura) 18%, transparent);
   filter: blur(3rem);
   pointer-events: none;
 }
@@ -916,6 +1254,7 @@ details > summary::-webkit-details-marker {
   right: 0;
   z-index: 100;
   width: min(20rem, calc(100vw - 1.5rem));
+  max-height: min(42rem, calc(100dvh - 6rem));
   overflow: hidden;
   border: 1px solid rgb(215 182 109 / 0.36);
   border-radius: 1.25rem;
@@ -925,6 +1264,10 @@ details > summary::-webkit-details-marker {
   padding: 1rem;
   color: var(--rosary-pearl);
   box-shadow: 0 24px 64px rgb(3 13 27 / 0.48);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgb(215 182 109 / 0.38) transparent;
+  scrollbar-width: thin;
 }
 
 .rosary-settings-heading {
@@ -1079,6 +1422,7 @@ details > summary::-webkit-details-marker {
   }
 }
 
+.rosary-chaplet-complete .rosary-bead-body,
 .rosary-chaplet-complete svg circle {
   animation: rosary-complete-light 1.05s ease-out both;
 }
@@ -1111,6 +1455,12 @@ details > summary::-webkit-details-marker {
 
 .rosary-bead-touch {
   touch-action: manipulation;
+}
+
+.rosary-bead-touch:hover,
+.rosary-bead-touch:focus-visible {
+  background: color-mix(in srgb, var(--chaplet-aura) 18%, transparent);
+  outline-color: var(--chaplet-active);
 }
 
 @media (min-width: 48rem) {

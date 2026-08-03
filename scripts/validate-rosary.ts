@@ -14,6 +14,12 @@ import {
   getScriptureBook,
   type ScriptureBookData,
 } from "../src/lib/scripture";
+import {
+  DEFAULT_ROSARY_DESIGN_ID,
+  getRosaryDesign,
+  isRosaryDesignId,
+  ROSARY_DESIGNS,
+} from "../src/lib/rosary-designs";
 
 type MysteryBaseline = readonly [
   id: string,
@@ -77,9 +83,10 @@ async function main() {
   await validateMysteries();
   validateWeekdayAndSeasonalSchedule();
   validateGeneratedStepsAndBeads();
+  validateRosaryDesigns();
 
   console.log(
-    "Validated 20 mysteries, traditional Rosary prayers, the U.S. weekday and seasonal schedule, 59 beads, local Douay-Rheims anchors, and Fatima on/off prayer flows.",
+    "Validated 20 mysteries, traditional Rosary prayers, the U.S. weekday and seasonal schedule, 59 beads, eight distinct rosary designs, local Douay-Rheims anchors, and Fatima on/off prayer flows.",
   );
 }
 
@@ -280,6 +287,64 @@ function validateGeneratedStepsAndBeads() {
   for (const mysterySet of MYSTERY_SETS) {
     validateFlow(mysterySet.id, false);
     validateFlow(mysterySet.id, true);
+  }
+}
+
+function validateRosaryDesigns() {
+  const expectedIds = [
+    "immaculate-pearl",
+    "lourdes-blue",
+    "sacred-hearts",
+    "guadalupe-rose",
+    "saint-benedict",
+    "eucharistic-crystal",
+    "bethlehem-olivewood",
+    "fatima-starlight",
+  ];
+
+  assert(
+    ROSARY_DESIGNS.length === expectedIds.length,
+    "The rosary treasury must contain eight designs",
+  );
+  assert(
+    JSON.stringify(ROSARY_DESIGNS.map((design) => design.id)) ===
+      JSON.stringify(expectedIds),
+    "The rosary treasury must retain its canonical design ids",
+  );
+  assert(
+    isRosaryDesignId(DEFAULT_ROSARY_DESIGN_ID) &&
+      getRosaryDesign(DEFAULT_ROSARY_DESIGN_ID).id ===
+        DEFAULT_ROSARY_DESIGN_ID,
+    "The default rosary design must resolve from the catalog",
+  );
+
+  const visualSignatures = new Set<string>();
+
+  for (const design of ROSARY_DESIGNS) {
+    assert(design.name.trim(), `${design.id} needs a name`);
+    assert(design.dedication.trim(), `${design.id} needs a dedication`);
+    assert(design.materials.trim(), `${design.id} needs materials`);
+    assert(design.finish.trim(), `${design.id} needs a finish`);
+
+    const visualSignature = JSON.stringify([
+      design.beadShape,
+      design.ourFatherShape,
+      design.texture,
+      design.centerpieceStyle,
+      design.crucifixStyle,
+    ]);
+    assert(
+      !visualSignatures.has(visualSignature),
+      `${design.id} must have a distinct visual construction`,
+    );
+    visualSignatures.add(visualSignature);
+
+    for (const [token, color] of Object.entries(design.palette)) {
+      assert(
+        /^#[\dA-F]{6}$/u.test(color),
+        `${design.id} ${token} must be a six-digit hex color`,
+      );
+    }
   }
 }
 
