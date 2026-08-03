@@ -10,6 +10,7 @@ import {
   Sunset,
 } from "lucide-react";
 import Link from "next/link";
+import { OfficeHourCollapseControl } from "@/components/office-hour-collapse-control";
 import type { OfficeGuide } from "@/lib/office-psalter";
 import { getOfficeDevotionalTexts } from "@/lib/office-devotional-texts";
 import {
@@ -144,12 +145,12 @@ function OfficeHour({
     >
       <details
         className="group"
-        open={
-          guide.hourType === "office_readings" ||
-          guide.hourType === "morning_prayer"
-        }
+        id={`office-${guide.hourType}-disclosure`}
       >
-        <summary className="flex cursor-pointer list-none items-start justify-between gap-4 p-5 marker:content-none sm:p-7 [&::-webkit-details-marker]:hidden">
+        <summary
+          className="scroll-mt-24 flex cursor-pointer list-none items-start justify-between gap-4 p-5 marker:content-none sm:p-7 [&::-webkit-details-marker]:hidden"
+          id={`office-${guide.hourType}-summary`}
+        >
           <span className="flex min-w-0 items-start gap-4">
             <span className="inline-flex size-12 shrink-0 items-center justify-center rounded-xl bg-sanctuary-night text-[var(--gilt-light)] shadow-sm">
               <Icon aria-hidden className="size-5" />
@@ -325,6 +326,12 @@ function OfficeHour({
               ))}
             </ol>
           </section>
+
+          <OfficeHourCollapseControl
+            detailsId={`office-${guide.hourType}-disclosure`}
+            hourLabel={hourLabel}
+            summaryId={`office-${guide.hourType}-summary`}
+          />
         </div>
       </details>
     </article>
