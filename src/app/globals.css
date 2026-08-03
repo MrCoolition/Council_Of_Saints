@@ -457,13 +457,50 @@ details > summary::-webkit-details-marker {
 }
 
 .rosary-threshold-content {
-  width: min(100%, 78rem);
-  padding: clamp(2rem, 5vw, 5.5rem);
+  width: min(100%, 88rem);
+  min-width: 0;
+  padding: clamp(1.25rem, 2.6vw, 3rem);
+}
+
+.rosary-threshold-intro {
+  display: grid;
+  min-width: 0;
+  align-items: end;
+  gap: clamp(1.5rem, 3vw, 3rem);
+}
+
+.rosary-threshold-hero,
+.rosary-mystery-fieldset,
+.rosary-mystery-grid {
+  min-width: 0;
+}
+
+.rosary-threshold-eyebrow {
+  margin-top: 1rem;
+}
+
+.rosary-threshold-heading {
+  max-width: 43rem;
+  margin-top: 0.55rem;
+  font-size: clamp(2.55rem, 7.5vw, 4.35rem);
+  line-height: 0.98;
+  letter-spacing: -0.025em;
+}
+
+.rosary-threshold-date {
+  margin-top: 0.75rem;
+  font-size: clamp(1rem, 2vw, 1.2rem);
+}
+
+.rosary-mystery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
 }
 
 .rosary-marian-seal {
   display: grid;
-  width: 4.5rem;
+  width: clamp(3.25rem, 5vw, 4rem);
   aspect-ratio: 1;
   place-items: center;
   border: 1px solid rgb(215 182 109 / 0.62);
@@ -473,7 +510,7 @@ details > summary::-webkit-details-marker {
     rgb(10 38 63 / 0.74);
   color: var(--rosary-gold);
   font-family: var(--font-reading);
-  font-size: 2.2rem;
+  font-size: clamp(1.7rem, 3vw, 2rem);
   font-style: italic;
   box-shadow:
     0 0 0 0.45rem rgb(215 182 109 / 0.065),
@@ -489,7 +526,8 @@ details > summary::-webkit-details-marker {
 }
 
 .rosary-mystery-choice {
-  min-height: 7.75rem;
+  min-width: 0;
+  min-height: 6.65rem;
   border: 1px solid rgb(200 216 231 / 0.16);
   border-radius: 1.25rem;
   background: rgb(255 255 255 / 0.035);
@@ -519,9 +557,10 @@ details > summary::-webkit-details-marker {
 }
 
 .rosary-design-treasury {
-  margin-top: 1.65rem;
+  min-width: 0;
+  margin-top: 1.25rem;
   border-top: 1px solid rgb(255 255 255 / 0.1);
-  padding-top: 1.35rem;
+  padding-top: 1rem;
 }
 
 .rosary-design-treasury-heading {
@@ -537,6 +576,8 @@ details > summary::-webkit-details-marker {
   min-height: 1.85rem;
   align-items: center;
   gap: 0.35rem;
+  max-width: 58%;
+  overflow: hidden;
   border: 1px solid rgb(215 182 109 / 0.34);
   border-radius: 999px;
   background: rgb(215 182 109 / 0.09);
@@ -544,11 +585,13 @@ details > summary::-webkit-details-marker {
   padding: 0.25rem 0.65rem;
   font-size: 0.68rem;
   font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rosary-design-rail {
   display: grid;
-  grid-auto-columns: minmax(13.5rem, 15rem);
+  grid-auto-columns: minmax(16rem, 17.5rem);
   grid-auto-flow: column;
   gap: 0.65rem;
   overflow-x: auto;
@@ -562,7 +605,7 @@ details > summary::-webkit-details-marker {
 .rosary-design-choice {
   position: relative;
   display: grid;
-  min-height: 7.15rem;
+  min-height: 6.65rem;
   grid-template-columns: 4.7rem minmax(0, 1fr);
   align-items: center;
   gap: 0.8rem;
@@ -580,6 +623,22 @@ details > summary::-webkit-details-marker {
     border-color 180ms ease,
     background 180ms ease,
     box-shadow 180ms ease;
+}
+
+.rosary-threshold-actions {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  border-top: 1px solid rgb(255 255 255 / 0.1);
+  padding-top: 1rem;
+}
+
+.rosary-threshold-actions .rosary-primary-action {
+  max-width: 100%;
+  flex: none;
+  text-align: center;
 }
 
 .rosary-design-choice:hover {
@@ -1464,13 +1523,19 @@ details > summary::-webkit-details-marker {
 }
 
 @media (min-width: 48rem) {
+  .rosary-threshold-actions {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
   .rosary-chamber-header {
     grid-template-columns: minmax(0, 1fr) auto auto;
     padding-inline: 1.35rem;
   }
 
   .rosary-mystery-choice {
-    min-height: 8.75rem;
+    min-height: 7.15rem;
   }
 
   .rosary-beads-frame {
@@ -1487,6 +1552,14 @@ details > summary::-webkit-details-marker {
 }
 
 @media (min-width: 64rem) {
+  .rosary-threshold-intro {
+    grid-template-columns: minmax(18rem, 0.82fr) minmax(28rem, 1.18fr);
+  }
+
+  .rosary-threshold-heading {
+    font-size: clamp(3.3rem, 4.4vw, 4.6rem);
+  }
+
   .rosary-chamber-grid,
   .rosary-focus-mode .rosary-chamber-grid {
     grid-template-columns: minmax(22rem, 0.82fr) minmax(28rem, 1.18fr);
@@ -1497,6 +1570,50 @@ details > summary::-webkit-details-marker {
     border-right: 1px solid rgb(200 216 231 / 0.12);
     border-bottom: 0;
     padding: clamp(0.7rem, 1.5vw, 1.35rem);
+  }
+}
+
+@media (min-width: 64rem) and (max-height: 52rem) {
+  .rosary-threshold-content {
+    padding-block: 1.15rem;
+  }
+
+  .rosary-marian-seal {
+    width: 3.15rem;
+    font-size: 1.6rem;
+  }
+
+  .rosary-threshold-eyebrow {
+    margin-top: 0.65rem;
+  }
+
+  .rosary-threshold-heading {
+    margin-top: 0.4rem;
+    font-size: clamp(2.9rem, 4vw, 4rem);
+  }
+
+  .rosary-threshold-date {
+    margin-top: 0.55rem;
+  }
+
+  .rosary-mystery-choice {
+    min-height: 6.25rem;
+    padding: 0.8rem;
+  }
+
+  .rosary-design-treasury,
+  .rosary-threshold-actions {
+    margin-top: 0.85rem;
+    padding-top: 0.75rem;
+  }
+
+  .rosary-design-treasury-heading {
+    margin-bottom: 0.55rem;
+  }
+
+  .rosary-design-choice {
+    min-height: 6.1rem;
+    padding-block: 0.6rem;
   }
 }
 

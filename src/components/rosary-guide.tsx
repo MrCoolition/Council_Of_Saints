@@ -319,7 +319,6 @@ export function RosaryGuide({
       started: beginImmediately,
       finished: false,
     }));
-    settingsRef.current?.removeAttribute("open");
 
     if (beginImmediately) {
       setFocusMode(true);
@@ -724,41 +723,47 @@ function RosaryThreshold({
     <section className="rosary-threshold" aria-labelledby="rosary-heading">
       <div aria-hidden className="rosary-threshold-stars" />
       <div className="rosary-threshold-content">
-        <div className="rosary-marian-seal" aria-hidden>
-          M
-        </div>
-        <p className="rosary-eyebrow mt-6">The Most Holy Rosary</p>
-        <h1
-          className="mt-3 max-w-4xl font-serif text-4xl font-semibold leading-[1.02] tracking-[-0.025em] text-[var(--rosary-pearl)] sm:text-6xl lg:text-7xl"
-          id="rosary-heading"
-        >
-          With Mary, look upon Christ.
-        </h1>
-        <p className="mt-5 font-serif text-lg italic text-[var(--rosary-mist)] sm:text-xl">
-          {weekday} · {liturgicalSeason}
-        </p>
-
-        <fieldset className="mt-10">
-          <legend className="sr-only">Choose the mysteries</legend>
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-            {MYSTERY_SETS.map((mysterySet) => (
-              <MysteryChoice
-                isRecommended={mysterySet.id === recommendedSetId}
-                key={mysterySet.id}
-                mysterySet={mysterySet}
-                onSelect={onSelect}
-                selected={mysterySet.id === selectedSetId}
-              />
-            ))}
+        <div className="rosary-threshold-intro">
+          <div className="rosary-threshold-hero">
+            <div className="rosary-marian-seal" aria-hidden>
+              M
+            </div>
+            <p className="rosary-eyebrow rosary-threshold-eyebrow">
+              The Most Holy Rosary
+            </p>
+            <h1
+              className="rosary-threshold-heading font-serif font-semibold text-[var(--rosary-pearl)]"
+              id="rosary-heading"
+            >
+              With Mary, look upon Christ.
+            </h1>
+            <p className="rosary-threshold-date font-serif italic text-[var(--rosary-mist)]">
+              {weekday} · {liturgicalSeason}
+            </p>
           </div>
-        </fieldset>
+
+          <fieldset className="rosary-mystery-fieldset">
+            <legend className="sr-only">Choose the mysteries</legend>
+            <div className="rosary-mystery-grid">
+              {MYSTERY_SETS.map((mysterySet) => (
+                <MysteryChoice
+                  isRecommended={mysterySet.id === recommendedSetId}
+                  key={mysterySet.id}
+                  mysterySet={mysterySet}
+                  onSelect={onSelect}
+                  selected={mysterySet.id === selectedSetId}
+                />
+              ))}
+            </div>
+          </fieldset>
+        </div>
 
         <RosaryDesignPicker
           onSelect={onSelectDesign}
           selectedDesignId={selectedDesignId}
         />
 
-        <div className="mt-8 flex flex-col gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="rosary-threshold-actions">
           <label className="inline-flex min-h-11 cursor-pointer items-center gap-3 text-sm font-semibold text-[var(--rosary-mist)]">
             <input
               checked={includeFatimaPrayer}
