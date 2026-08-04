@@ -23,12 +23,14 @@ import {
 } from "@/server/scripture-passages";
 import { getTodayPayload } from "@/server/today";
 import {
-  getUsccbLectionaryForDate,
+  getUsccbLectionaryReadingSetsForDate,
   type UsccbLectionaryItem,
+  type UsccbLectionaryReadingSet,
 } from "@/server/usccb-lectionary";
 
 export type HolyMassLoadedSelection = {
   title: string;
+  lectionaryCitation: string;
   displayCitation: string;
   passages: ScripturePassage[];
   segments: LoadedScriptureSegment[];
@@ -50,6 +52,10 @@ export type HolyMassLoadedOption = {
   gospelChoices: HolyMassLoadedSelection[];
 };
 
+export type HolyMassReadingSet = UsccbLectionaryReadingSet & {
+  douayOptionId: string | null;
+};
+
 export type HolyMassCelebrationView = {
   id: string;
   mode: "daytime" | "anticipated";
@@ -64,6 +70,7 @@ export type HolyMassCelebrationView = {
   profile: MassCelebrationProfile;
   officialReadingsUrl: string;
   massLectionary: UsccbLectionaryItem | null;
+  readingSets: HolyMassReadingSet[];
   options: HolyMassLoadedOption[];
   riteKind: HolyMassRiteKind;
 };
@@ -135,6 +142,7 @@ export async function getHolyMassPageData(
           liturgicalColor: "White",
           officialReadingsUrl: getUsccbDailyReadingsUrl(today.localDate),
           massLectionary: null,
+          readingSets: [],
           options: [],
           profile: {
             id: "easter-vigil",
@@ -168,57 +176,56 @@ async function loadCelebration(
   const riteKind = getHolyMassRiteKind(day.observanceId, mode);
   const entry = getUsMassReadingsForDate(day.localDate);
   const officialReadingsUrl = getUsccbDailyReadingsUrl(day.localDate);
-  const massLectionaryPromise = getUsccbLectionaryForDate(day.localDate);
-
-  if (entry.status === "curated") {
-    const [options, massLectionary] = await Promise.all([
-      Promise.all(entry.options.map(loadOption)),
-      massLectionaryPromise,
-    ]);
-    const profile = entry.observance.profile;
-
-    return {
-      id: `${day.localDate}:${mode}:${profile.id}`,
-      mode,
-      localDate: day.localDate,
-      dateLabel: formatMassDate(day.localDate),
-      title: massLectionary?.title ?? entry.observance.title,
-      rank: displayRank(entry.observance.rank),
-      season: day.season,
-      liturgicalColor: displayColor(entry.observance.liturgicalColor),
-      cycleLabel: day.sundayCycle,
-      lectionaryNumbers: [...entry.observance.lectionaryNumbers],
-      profile,
-      officialReadingsUrl,
-      massLectionary,
-      options,
-      riteKind,
-    };
-  }
-
   const requirements = deriveRequirements(day, mode, riteKind);
-  const massLectionary = await massLectionaryPromise;
-  const profile: MassCelebrationProfile = {
-    id: `${day.localDate}-mass`,
-    label: day.rank,
-    requirements,
-  };
+  const [loadedReadingSets, options] = await Promise.all([
+    getUsccbLectionaryReadingSetsForDate(day.localDate),
+    entry.status === "curated"
+      ? Promise.all(entry.options.map(loadOption))
+      : Promise.resolve([]),
+  ]);
+  const readingSets = loadedReadingSets.map((readingSet) => ({
+    ...readingSet,
+    douayOptionId: findMatchingDouayOption(readingSet, options)?.id ?? null,
+  }));
+  const massLectionary = readingSets.find(
+    (readingSet) => readingSet.sourceKind === "daily",
+  )?.item ?? null;
+  const profile: MassCelebrationProfile = entry.status === "curated"
+    ? entry.observance.profile
+    : {
+        id: `${day.localDate}-mass`,
+        label: day.rank,
+        requirements,
+      };
+  const lectionaryNumbers = readingSets
+    .map((readingSet) => readingSet.lectionaryNumber)
+    .filter((number): number is number => number !== null);
 
   return {
     id: `${day.localDate}:${mode}:${profile.id}`,
     mode,
     localDate: day.localDate,
     dateLabel: formatMassDate(day.localDate),
-    title: massLectionary?.title ?? day.title,
-    rank: day.rank,
+    title: massLectionary?.title ??
+      (entry.status === "curated" ? entry.observance.title : day.title),
+    rank: entry.status === "curated"
+      ? displayRank(entry.observance.rank)
+      : day.rank,
     season: day.season,
-    liturgicalColor: day.color,
+    liturgicalColor: entry.status === "curated"
+      ? displayColor(entry.observance.liturgicalColor)
+      : day.color,
     cycleLabel: day.sundayCycle,
-    lectionaryNumbers: [],
+    lectionaryNumbers: lectionaryNumbers.length > 0
+      ? [...new Set(lectionaryNumbers)]
+      : entry.status === "curated"
+        ? [...entry.observance.lectionaryNumbers]
+        : [],
     profile,
     officialReadingsUrl,
     massLectionary,
-    options: [],
+    readingSets,
+    options,
     riteKind,
   };
 }
@@ -256,10 +263,60 @@ async function loadSelection(
 
   return {
     title: selection.title,
+    lectionaryCitation: selection.displayCitation,
     displayCitation: getDouayDisplayCitation(selection),
     passages,
     segments,
   };
+}
+
+function findMatchingDouayOption(
+  readingSet: UsccbLectionaryReadingSet,
+  options: readonly HolyMassLoadedOption[],
+) {
+  const readingUrl = normalizeUrl(readingSet.officialUrl);
+  const firstReadingCitation = normalizeCitation(
+    readingSet.firstReadingCitation ?? "",
+  );
+  const gospelCitations = new Set(
+    readingSet.gospelCitations.map(normalizeCitation),
+  );
+
+  return options.find((option) => {
+    if (
+      readingUrl &&
+      option.officialUrl &&
+      normalizeUrl(option.officialUrl) === readingUrl
+    ) {
+      return true;
+    }
+
+    return Boolean(
+      firstReadingCitation &&
+      normalizeCitation(option.firstReading.lectionaryCitation) ===
+        firstReadingCitation &&
+      option.gospelChoices.some((gospel) =>
+        gospelCitations.has(normalizeCitation(gospel.lectionaryCitation)),
+      ),
+    );
+  });
+}
+
+function normalizeCitation(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[–—]/gu, "-")
+    .replace(/[^a-z0-9]/gu, "");
+}
+
+function normalizeUrl(value: string) {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.toString().replace(/\/$/u, "");
+  } catch {
+    return null;
+  }
 }
 
 async function loadPsalm(

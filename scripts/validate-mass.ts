@@ -12,7 +12,6 @@ import {
 import {
   AUGUST_1_2026_US_MASS_READINGS,
   AUGUST_2_2026_US_MASS_READINGS,
-  AUGUST_4_2026_US_MASS_READINGS,
   getCuratedUsMassReadingsEntries,
   getDouayDisplayCitation,
   getUsMassReadingsForDate,
@@ -23,6 +22,10 @@ import {
 import { getLiturgicalDay } from "../src/lib/liturgical-calendar";
 import { getScriptureBook, type ScripturePassage } from "../src/lib/scripture";
 import { parseUsccbLectionaryFeed } from "../src/lib/usccb-lectionary";
+import {
+  buildUsccbLectionaryReadingSets,
+  parseUsccbReadingPage,
+} from "../src/lib/usccb-reading-page";
 
 async function main() {
   validateOfficialUrls();
@@ -30,12 +33,13 @@ async function main() {
   validateMassOrderSchema();
   validateGoldenFixtures();
   validateUsccbFeedParser();
+  validateUsccbRelatedReadingResolver();
   validateSaturdayResolver();
   await validateLiturgicalCalendarEdges();
   await validateLocalScriptureCoverage();
 
   console.log(
-    "Validated the complete Order of Mass dialogue, curated U.S. Mass fixtures, local Douay passages, liturgical profiles, USCCB links and RSS parsing, ordinary Saturday resolution, and Paschal calendar edge dates.",
+    "Validated the complete Order of Mass dialogue, curated Douay fixtures, official USCCB daily/Proper discovery, local Scripture passages, liturgical profiles, ordinary Saturday resolution, and Paschal calendar edge dates.",
   );
 }
 
@@ -268,6 +272,116 @@ Reader footer`;
   );
 }
 
+function validateUsccbRelatedReadingResolver() {
+  const cases = [
+    {
+      localDate: "2026-08-04",
+      dailyUrl: "https://bible.usccb.org/bible/readings/080426.cfm",
+      dailyTitle: "Tuesday of the Eighteenth Week in Ordinary Time",
+      dailyLectionary: 408,
+      dailyFirst: "Jeremiah 30:1-2, 12-15, 18-22",
+      dailyGospel: "Matthew 14:22-36",
+      properUrl:
+        "https://bible.usccb.org/bible/readings/memorial-saint-john-vianney-priest",
+      properTitle: "Memorial of Saint John Vianney, Priest",
+      properLectionary: 612,
+      properFirst: "Ezekiel 3:17-21",
+      properGospel: "Matthew 9:35-10:1",
+      note:
+        "The readings are proper. The Common of Pastors, Lectionary 719-724, may also be used.",
+    },
+    {
+      localDate: "2026-07-11",
+      dailyUrl: "https://bible.usccb.org/bible/readings/071126.cfm",
+      dailyTitle: "Saturday of the Fourteenth Week in Ordinary Time",
+      dailyLectionary: 388,
+      dailyFirst: "Isaiah 6:1-8",
+      dailyGospel: "Matthew 10:24-33",
+      properUrl:
+        "https://bible.usccb.org/bible/readings/0711-memorial-benedict.cfm",
+      properTitle: "Memorial of Saint Benedict, Abbot",
+      properLectionary: 597,
+      properFirst: "Proverbs 2:1-9",
+      properGospel: "Matthew 19:27-29",
+      note:
+        "The Common of Holy Men and Women: For Religious, Lectionary 737-742, may also be used.",
+    },
+  ] as const;
+
+  for (const fixture of cases) {
+    const daily = parseUsccbReadingPage(
+      makeUsccbReaderFixture({
+        title: fixture.dailyTitle,
+        lectionary: fixture.dailyLectionary,
+        firstReading: fixture.dailyFirst,
+        gospel: fixture.dailyGospel,
+        relatedTitle: fixture.properTitle,
+        relatedUrl: fixture.properUrl,
+      }),
+      { localDate: fixture.localDate, officialUrl: fixture.dailyUrl },
+    );
+    const proper = parseUsccbReadingPage(
+      makeUsccbReaderFixture({
+        title: fixture.properTitle,
+        lectionary: fixture.properLectionary,
+        firstReading: fixture.properFirst,
+        gospel: fixture.properGospel,
+        note: fixture.note,
+      }),
+      { localDate: fixture.localDate, officialUrl: fixture.properUrl },
+    );
+
+    assert(daily && proper, `${fixture.properTitle} pages must parse`);
+    assert(
+      daily.relatedReadingPages[0]?.url === fixture.properUrl,
+      `${fixture.properTitle} must be discovered from its daily page`,
+    );
+
+    const sets = buildUsccbLectionaryReadingSets(daily, [proper]);
+    assert(
+      sets.length === 2 &&
+        sets[0]?.sourceKind === "proper" &&
+        sets[1]?.sourceKind === "daily",
+      `${fixture.properTitle} must expose the Proper first and daily set second`,
+    );
+    assert(
+      sets[0]?.lectionaryNumber === fixture.properLectionary &&
+        sets[0]?.firstReadingCitation === fixture.properFirst &&
+        sets[0]?.gospelCitations[0] === fixture.properGospel &&
+        sets[0]?.description.includes(fixture.note),
+      `${fixture.properTitle} must retain its official lectionary, citations, and Common note`,
+    );
+  }
+}
+
+function makeUsccbReaderFixture(input: {
+  title: string;
+  lectionary: number;
+  firstReading: string;
+  gospel: string;
+  note?: string;
+  relatedTitle?: string;
+  relatedUrl?: string;
+}) {
+  const related = input.relatedTitle && input.relatedUrl
+    ? `Readings for the [${input.relatedTitle}](${input.relatedUrl})`
+    : "";
+
+  return `Markdown Content:
+# Daily Readings
+${related}
+## ${input.title}
+Lectionary: ${input.lectionary}
+${input.note ?? ""}
+### Reading 1
+[${input.firstReading}](https://bible.usccb.org/bible/test/1)
+The first reading text.
+### Gospel
+[${input.gospel}](https://bible.usccb.org/bible/test/2)
+The Gospel text.
+Lectionary for Mass copyright United States Conference of Catholic Bishops`;
+}
+
 function validateProfiles() {
   const august1 = AUGUST_1_2026_US_MASS_READINGS.observance;
   assert(
@@ -396,25 +510,6 @@ function validateGoldenFixtures() {
     scripturePassage("matthew", 14, 13, 21),
   ]);
 
-  const august4 = getUsMassReadingsForDate("2026-08-04");
-  assert(
-    august4 === AUGUST_4_2026_US_MASS_READINGS &&
-      august4.status === "curated" &&
-      august4.options.length === 2,
-    "August 4 must expose both the Saint John Vianney proper and weekday sets",
-  );
-  const johnVianneyProper = AUGUST_4_2026_US_MASS_READINGS.options[0];
-  assert(
-    johnVianneyProper.id === "saint-proper",
-    "The Saint John Vianney proper must be the default set",
-  );
-  assertSelection(johnVianneyProper.firstReading, "Ezekiel 3:17–21", [
-    scripturePassage("ezekiel", 3, 17, 21),
-  ]);
-  assertSelection(johnVianneyProper.gospelChoices[0], "Matthew 9:35–10:1", [
-    scripturePassage("matthew", 9, 35, 38),
-    scripturePassage("matthew", 10, 1, 1),
-  ]);
 }
 
 function validateSaturdayResolver() {

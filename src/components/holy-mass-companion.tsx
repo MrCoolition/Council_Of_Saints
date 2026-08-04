@@ -51,6 +51,7 @@ import type {
   HolyMassLoadedPsalm,
   HolyMassLoadedSelection,
   HolyMassPageData,
+  HolyMassReadingSet,
 } from "@/server/holy-mass";
 
 const DEFAULT_ANTICIPATED_CUTOFF = "16:00";
@@ -657,13 +658,22 @@ function MassExperience({
   const [activeSection, setActiveSection] = useState(
     massSections[0].id,
   );
-  const [readingOptionId, setReadingOptionId] = useState<string | null>(
-    celebration.options[0]?.id ?? null,
+  const [readingSetId, setReadingSetId] = useState<string | null>(
+    celebration.readingSets[0]?.id ?? celebration.options[0]?.id ?? null,
   );
-  const selectedReadingOption =
-    celebration.options.find((option) => option.id === readingOptionId) ??
-    celebration.options[0] ??
+  const selectedReadingSet =
+    celebration.readingSets.find((readingSet) => readingSet.id === readingSetId) ??
+    celebration.readingSets[0] ??
     null;
+  const selectedReadingOption = selectedReadingSet
+    ? celebration.options.find(
+        (option) => option.id === selectedReadingSet.douayOptionId,
+      ) ?? null
+    : celebration.options.find((option) => option.id === readingSetId) ??
+      celebration.options[0] ??
+      null;
+  const selectedContextReadingId =
+    selectedReadingSet?.id ?? selectedReadingOption?.id ?? null;
   const liturgicalAccent = getLiturgicalAccent(
     celebration.liturgicalColor,
   );
@@ -804,7 +814,7 @@ function MassExperience({
             localDate: celebration.localDate,
             mode: celebration.mode,
             sectionId: massSections[0].id,
-            readingOptionId: selectedReadingOption?.id ?? null,
+            readingOptionId: selectedContextReadingId,
             readingTranslation,
           }}
           nextSection={massSections[1]}
@@ -825,7 +835,7 @@ function MassExperience({
             localDate: celebration.localDate,
             mode: celebration.mode,
             sectionId: massSections[1].id,
-            readingOptionId: selectedReadingOption?.id ?? null,
+            readingOptionId: selectedContextReadingId,
             readingTranslation,
           }}
           nextSection={massSections[2]}
@@ -833,9 +843,10 @@ function MassExperience({
         >
           <LiturgyOfTheWord
             celebration={celebration}
-            onReadingOptionChange={setReadingOptionId}
+            onReadingSetChange={setReadingSetId}
             onReadingTranslationChange={onReadingTranslationChange}
             readingOption={selectedReadingOption}
+            readingSet={selectedReadingSet}
             readingTranslation={readingTranslation}
           />
         </RiteSection>
@@ -847,7 +858,7 @@ function MassExperience({
             localDate: celebration.localDate,
             mode: celebration.mode,
             sectionId: massSections[2].id,
-            readingOptionId: selectedReadingOption?.id ?? null,
+            readingOptionId: selectedContextReadingId,
             readingTranslation,
           }}
           nextSection={massSections[3]}
@@ -867,7 +878,7 @@ function MassExperience({
             localDate: celebration.localDate,
             mode: celebration.mode,
             sectionId: massSections[3].id,
-            readingOptionId: selectedReadingOption?.id ?? null,
+            readingOptionId: selectedContextReadingId,
             readingTranslation,
           }}
           nextSection={null}
@@ -1236,15 +1247,17 @@ function IntroductoryRites({
 
 function LiturgyOfTheWord({
   celebration,
-  onReadingOptionChange,
+  onReadingSetChange,
   onReadingTranslationChange,
   readingOption,
+  readingSet,
   readingTranslation,
 }: {
   celebration: HolyMassCelebrationView;
-  onReadingOptionChange: (optionId: string) => void;
+  onReadingSetChange: (readingSetId: string) => void;
   onReadingTranslationChange: (translation: MassReadingTranslation) => void;
   readingOption: HolyMassLoadedOption | null;
+  readingSet: HolyMassReadingSet | null;
   readingTranslation: MassReadingTranslation;
 }) {
   const wordRites: MassOrderItem[] = [MASS_ORDER_SECTIONS[1].items[0]];
@@ -1295,9 +1308,9 @@ function LiturgyOfTheWord({
   return (
     <div className="space-y-8">
       <MassReadingSetSelector
-        onChange={onReadingOptionChange}
-        options={celebration.options}
-        selectedOption={readingOption}
+        onChange={onReadingSetChange}
+        readingSets={celebration.readingSets}
+        selectedReadingSet={readingSet}
       />
 
       <MassTranslationToggle
@@ -1306,10 +1319,16 @@ function LiturgyOfTheWord({
       />
 
       <div hidden={readingTranslation !== "us-lectionary"}>
-        {celebration.massLectionary &&
-        (!readingOption ||
-          readingOption.id === "weekday" ||
-          readingOption.id === "appointed") ? (
+        {readingSet ? (
+          <UsccbMassReadings
+            item={readingSet.item}
+            readingSet={readingSet}
+            requirements={celebration.profile.requirements}
+          />
+        ) : celebration.massLectionary &&
+          (!readingOption ||
+            readingOption.id === "weekday" ||
+            readingOption.id === "appointed") ? (
           <UsccbMassReadings
             item={celebration.massLectionary}
             requirements={celebration.profile.requirements}
@@ -1435,14 +1454,14 @@ function MassTranslationToggle({
 
 function MassReadingSetSelector({
   onChange,
-  options,
-  selectedOption,
+  readingSets,
+  selectedReadingSet,
 }: {
-  onChange: (optionId: string) => void;
-  options: HolyMassLoadedOption[];
-  selectedOption: HolyMassLoadedOption | null;
+  onChange: (readingSetId: string) => void;
+  readingSets: HolyMassReadingSet[];
+  selectedReadingSet: HolyMassReadingSet | null;
 }) {
-  if (options.length <= 1) {
+  if (readingSets.length <= 1) {
     return null;
   }
 
@@ -1456,8 +1475,8 @@ function MassReadingSetSelector({
         set your parish is proclaiming now.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {options.map((option) => {
-          const selected = option.id === selectedOption?.id;
+        {readingSets.map((readingSet) => {
+          const selected = readingSet.id === selectedReadingSet?.id;
           return (
             <button
               aria-pressed={selected}
@@ -1466,17 +1485,22 @@ function MassReadingSetSelector({
                   ? "border-[color:var(--gilt)] bg-[var(--sanctuary-night)] text-[var(--vellum)] shadow-[0_12px_30px_rgba(11,28,22,0.16)]"
                   : "border-[var(--line)] bg-[var(--panel-soft)] text-[var(--foreground)] hover:border-[color:var(--gilt)]"
               }`}
-              key={option.id}
-              onClick={() => onChange(option.id)}
+              key={readingSet.id}
+              onClick={() => onChange(readingSet.id)}
               type="button"
             >
-              <span className="block text-sm font-extrabold">{option.label}</span>
+              <span className="block text-sm font-extrabold">
+                {readingSet.label}
+              </span>
               <span
                 className={`mt-2 block text-xs leading-5 ${
                   selected ? "text-[var(--parchment)]/80" : "text-[var(--muted)]"
                 }`}
               >
-                {option.firstReading.displayCitation} · {option.gospelChoices[0]?.displayCitation}
+                {readingSet.firstReadingCitation ?? "Official first reading"}
+                {readingSet.gospelCitations.length > 0
+                  ? ` · ${readingSet.gospelCitations.join(" or ")}`
+                  : ""}
               </span>
             </button>
           );
@@ -1543,9 +1567,11 @@ function SelectedOfficialReadingSet({
 
 function UsccbMassReadings({
   item,
+  readingSet,
   requirements,
 }: {
   item: NonNullable<HolyMassCelebrationView["massLectionary"]>;
+  readingSet?: HolyMassReadingSet;
   requirements: HolyMassCelebrationView["profile"]["requirements"];
 }) {
   const hasFeedSequence = item.sections.some(
@@ -1554,6 +1580,28 @@ function UsccbMassReadings({
 
   return (
     <div className="space-y-8">
+      {readingSet ? (
+        <section className="rounded-3xl border border-[color:var(--gilt)]/45 bg-[var(--panel-soft)] p-5 sm:p-7">
+          <p className="text-xs font-bold uppercase tracking-[0.13em] text-[color:var(--liturgical-accent)]">
+            Readings being proclaimed
+          </p>
+          <h3 className="mt-2 font-serif text-3xl font-semibold text-[var(--foreground)]">
+            {readingSet.label}
+          </h3>
+          <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
+            {readingSet.description}
+          </p>
+          <a
+            className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-full bg-[var(--sanctuary-night)] px-4 text-xs font-bold text-[var(--vellum)]"
+            href={readingSet.officialUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            Verify at USCCB
+            <ChevronRight aria-hidden className="size-4" />
+          </a>
+        </section>
+      ) : null}
       {item.sections.map((section, index) => {
         const kind = getUsccbSectionKind(section);
         return (

@@ -82,36 +82,45 @@ export async function resolveFatherContext(
       const section =
         MASS_ORDER_SECTIONS.find((candidate) => candidate.id === locator.sectionId) ??
         MASS_ORDER_SECTIONS[0];
-      const selectedOption = locator.readingOptionId
-        ? celebration.options.find(
-            (option) => option.id === locator.readingOptionId,
+      const selectedReadingSet = locator.readingOptionId
+        ? celebration.readingSets.find(
+            (readingSet) => readingSet.id === locator.readingOptionId,
           ) ?? null
-        : celebration.options[0] ?? null;
+        : celebration.readingSets[0] ?? null;
+      const selectedOption = selectedReadingSet
+        ? celebration.options.find(
+            (option) => option.id === selectedReadingSet.douayOptionId,
+          ) ?? null
+        : locator.readingOptionId
+          ? celebration.options.find(
+              (option) => option.id === locator.readingOptionId,
+            ) ?? null
+          : celebration.options[0] ?? null;
       const liveLectionaryCitations = celebration.massLectionary
         ? celebration.massLectionary.sections
             .map((reading) => `${reading.title}: ${reading.citation}`)
             .join("\n")
         : "";
-      const selectedReadingContext = selectedOption
-        ? formatMassOption(selectedOption)
-        : liveLectionaryCitations;
-      const alternatives = celebration.options
-        .filter((option) => option.id !== selectedOption?.id)
-        .map(
-          (option) =>
-            `${option.label}: ${option.firstReading.displayCitation}; Gospel ${option.gospelChoices
-              .map((gospel) => gospel.displayCitation)
-              .join(" or ")}.`,
-        )
+      const selectedReadingContext = selectedReadingSet
+        ? formatOfficialMassReadingSet(selectedReadingSet)
+        : selectedOption
+          ? formatMassOption(selectedOption)
+          : liveLectionaryCitations;
+      const alternatives = celebration.readingSets
+        .filter((readingSet) => readingSet.id !== selectedReadingSet?.id)
+        .map(formatOfficialMassReadingSet)
         .join("\n");
       const readingSetLabel =
+        selectedReadingSet?.label ??
         selectedOption?.label ??
         celebration.massLectionary?.title ??
         "Live USCCB set";
+      const selectedReadingId =
+        selectedReadingSet?.id ?? selectedOption?.id ?? "live";
 
       return {
         kind: "mass",
-        key: `mass:${celebration.id}:${section.id}:${selectedOption?.id ?? "live"}:${locator.readingTranslation}`,
+        key: `mass:${celebration.id}:${section.id}:${selectedReadingId}:${locator.readingTranslation}`,
         title: `${section.title} · ${celebration.title} · ${readingSetLabel}`,
         body: limitContext(
           [
@@ -130,8 +139,8 @@ export async function resolveFatherContext(
               ? `Other valid reading set(s) modeled for this celebration:\n${alternatives}`
               : "",
             `Official daily readings: ${celebration.officialReadingsUrl}`,
-            selectedOption?.officialUrl
-              ? `Official source for the selected set: ${selectedOption.officialUrl}`
+            selectedReadingSet?.officialUrl || selectedOption?.officialUrl
+              ? `Official source for the selected set: ${selectedReadingSet?.officialUrl ?? selectedOption?.officialUrl}`
               : "",
           ].join("\n\n"),
         ),
@@ -377,6 +386,19 @@ function formatMassOption(
     formatMassReading(option.gospelAcclamation),
     ...option.gospelChoices.map(formatMassReading),
   ].join("\n\n");
+}
+
+function formatOfficialMassReadingSet(
+  readingSet: Awaited<ReturnType<typeof getHolyMassPageData>>["daytime"]["readingSets"][number],
+) {
+  return [
+    `Reading-set label: ${readingSet.label}. ${readingSet.description}`,
+    readingSet.item.sections
+      .map((reading) => `${reading.title}: ${reading.citation}`)
+      .join("\n"),
+    `Lectionary number: ${readingSet.lectionaryNumber ?? "not stated"}.`,
+    `Official source: ${readingSet.officialUrl}`,
+  ].join("\n");
 }
 
 function formatPassageReference(
