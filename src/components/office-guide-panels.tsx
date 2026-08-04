@@ -10,7 +10,12 @@ import {
   Sunset,
 } from "lucide-react";
 import Link from "next/link";
+import {
+  DailyOfficeDevotionalProvider,
+  DailyOfficeDevotionalSections,
+} from "@/components/daily-office-devotional";
 import { OfficeHourCollapseControl } from "@/components/office-hour-collapse-control";
+import { AskFatherKoverman } from "@/components/father-koverman";
 import type { OfficeGuide } from "@/lib/office-psalter";
 import { getOfficeDevotionalTexts } from "@/lib/office-devotional-texts";
 import {
@@ -24,6 +29,7 @@ import {
 
 type OfficeGuidePanelsProps = {
   guides: OfficeGuide[];
+  localDate: string;
 };
 
 type LoadedOfficeGuide = Omit<
@@ -41,7 +47,10 @@ type LoadedOfficeGuide = Omit<
 const DOXOLOGY =
   "Glory be to the Father, and to the Son, and to the Holy Ghost. As it was in the beginning, is now, and ever shall be, world without end. Amen.";
 
-export async function OfficeGuidePanels({ guides }: OfficeGuidePanelsProps) {
+export async function OfficeGuidePanels({
+  guides,
+  localDate,
+}: OfficeGuidePanelsProps) {
   const loadedGuides = await Promise.all(
     guides.map(async (guide) => {
       const [scriptureAnchors, alternateAnchors] = await Promise.all([
@@ -110,19 +119,23 @@ export async function OfficeGuidePanels({ guides }: OfficeGuidePanelsProps) {
         ))}
       </nav>
 
-      <div className="space-y-6">
-        {loadedGuides.map((guide) => (
-          <OfficeHour key={guide.hourType} guide={guide} />
-        ))}
-      </div>
+      <DailyOfficeDevotionalProvider localDate={localDate}>
+        <div className="space-y-6">
+          {loadedGuides.map((guide) => (
+            <OfficeHour key={guide.hourType} guide={guide} localDate={localDate} />
+          ))}
+        </div>
+      </DailyOfficeDevotionalProvider>
     </section>
   );
 }
 
 function OfficeHour({
   guide,
+  localDate,
 }: {
   guide: LoadedOfficeGuide;
+  localDate: string;
 }) {
   const devotional = getOfficeDevotionalTexts(guide.hourType);
   const hourLabel = getHourLabel(guide);
@@ -268,43 +281,28 @@ function OfficeHour({
             </details>
           ) : null}
 
-          <section className="mt-5 rounded-xl border border-ecclesial-green/20 bg-ecclesial-green/5 p-4 sm:p-5">
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-ecclesial-green">
-              {devotional.intercessions.title}
-            </p>
-            <p className="mt-2 font-serif text-lg font-semibold text-foreground">
-              Response: {devotional.intercessions.response}
-            </p>
-            <ul className="mt-4 grid gap-3 lg:grid-cols-2">
-              {devotional.intercessions.petitions.map((petition) => (
-                <li
-                  className="rounded-xl border border-ecclesial-green/15 bg-vellum/70 p-4 text-sm leading-6 text-muted"
-                  key={petition.id}
-                >
-                  {petition.text}
-                </li>
-              ))}
-            </ul>
-          </section>
+          <DailyOfficeDevotionalSections
+            fallbackConclusion={devotional.concludingPrayer}
+            fallbackIntentions={devotional.intercessions}
+            hourLabel={hourLabel}
+            hourType={guide.hourType}
+          />
 
-          <section
-            aria-label={`${hourLabel} conclusion`}
-            className="mt-5 rounded-xl border border-hairline bg-[var(--panel-soft)] p-4 sm:p-5"
-          >
+          <div className="mt-5 flex justify-end">
+            <AskFatherKoverman
+              context={{
+                kind: "office",
+                hourType: guide.hourType,
+                localDate,
+              }}
+              label={`Ask about ${hourLabel}`}
+            />
+          </div>
+
+          <section className="mt-5 rounded-xl border border-hairline bg-[var(--panel-soft)] p-4 sm:p-5">
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-ecclesial-green">
-              Conclude
+              Complete the Hour
             </p>
-            <div className="mt-3 rounded-xl border border-hairline bg-vellum/70 p-4">
-              <h3 className="font-serif text-xl font-semibold text-foreground">
-                {devotional.concludingPrayer.title}
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-muted">
-                {devotional.concludingPrayer.prompt}
-              </p>
-              <p className="mt-2 text-sm italic leading-6 text-muted">
-                {devotional.concludingPrayer.endingSuggestion}
-              </p>
-            </div>
             <ol className="mt-4 grid gap-3 md:grid-cols-3">
               {guide.closingSteps.map((step, index) => (
                 <li

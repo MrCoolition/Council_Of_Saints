@@ -11,19 +11,24 @@
     "db:seed": "tsx scripts/seed.ts",
     "office:validate": "tsx scripts/validate-office.ts",
     "mass:validate": "tsx scripts/validate-mass.ts",
+    "ai:validate": "tsx scripts/validate-ai.ts",
     "prayers:validate": "tsx scripts/validate-prayers.ts",
     "rosary:validate": "tsx scripts/validate-rosary.ts",
     "scripture:import": "tsx scripts/import-scripture.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.29",
+    "@ai-sdk/react": "^4.0.54",
     "@romcal/calendar.united-states": "^3.0.0-dev.125",
     "@vercel/functions": "^3.7.5",
+    "ai": "^7.0.51",
     "lucide-react": "^1.23.0",
     "next": "16.2.10",
     "pg": "^8.22.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "romcal": "^3.0.0-dev.125"
+    "romcal": "^3.0.0-dev.125",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

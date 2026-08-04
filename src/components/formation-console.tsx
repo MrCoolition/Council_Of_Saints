@@ -19,6 +19,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
+import { AskFatherKoverman } from "@/components/father-koverman";
 import {
   formatPrayerItem,
   type HabitStatus,
@@ -352,7 +353,8 @@ export function FormationConsole({
     >
       <div className="rounded-2xl border border-hairline bg-[var(--panel)] p-4 shadow-[var(--shadow-soft)] sm:p-6">
         <div className="border-b border-hairline pb-5">
-          <div>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--accent)]">
               Rule of life
             </p>
@@ -369,6 +371,11 @@ export function FormationConsole({
             >
               {getFormationSaveLabel(saveState)}
             </p>
+            </div>
+            <AskFatherKoverman
+              context={{ kind: "formation", activeTab, localDate }}
+              label="Ask about formation"
+            />
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2 text-center">

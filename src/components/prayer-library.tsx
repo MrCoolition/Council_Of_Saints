@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AskFatherKoverman } from "@/components/father-koverman";
 import {
   devotionGuidePrayerSlugs,
   devotionGuides,
@@ -624,7 +625,13 @@ function LibraryResult({
         <p className="mt-1 text-xs leading-5 text-muted">{summary}</p>
       </button>
       <div className="flex items-center gap-1">
-        <FavoriteButton active={favorite} onClick={onFavorite} title={title} />
+        <div className="flex items-center gap-2">
+          <AskFatherKoverman
+            context={{ kind: "prayer", itemId: item.id }}
+            label="Ask Father"
+          />
+          <FavoriteButton active={favorite} onClick={onFavorite} title={title} />
+        </div>
         <span
           aria-hidden
           className={`flex size-9 items-center justify-center rounded-full ${

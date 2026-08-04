@@ -27,6 +27,7 @@ import {
 } from "react";
 import { RosaryBeads } from "@/components/rosary-beads";
 import { RosaryDesignPicker } from "@/components/rosary-design-picker";
+import { AskFatherKoverman } from "@/components/father-koverman";
 import {
   buildRosarySteps,
   getMysterySet,
@@ -543,8 +544,10 @@ export function RosaryGuide({
   if (!progress.started) {
     return (
       <RosaryThreshold
+        currentStepId={currentStep.id}
         includeFatimaPrayer={progress.includeFatimaPrayer}
         liturgicalSeason={liturgicalSeason}
+        localDate={localDate}
         onBegin={beginRosary}
         onSelectDesign={setDesignId}
         onSelect={selectMysterySet}
@@ -642,6 +645,19 @@ export function RosaryGuide({
         </div>
       </header>
 
+      <div className="flex justify-end border-b border-white/10 bg-[var(--rosary-night)] px-4 py-3 sm:px-6">
+        <AskFatherKoverman
+          context={{
+            kind: "rosary",
+            localDate,
+            mysterySetId: selectedSet.id,
+            mysteryId: currentMystery?.id ?? null,
+            stepId: currentStep.id,
+          }}
+          label={currentMystery ? "Ask about this mystery" : "Ask about this prayer"}
+        />
+      </div>
+
       <div className="rosary-chamber-grid">
         <div className="rosary-chaplet-pane">
           <RosaryBeads
@@ -693,10 +709,12 @@ export function RosaryGuide({
 }
 
 function RosaryThreshold({
+  currentStepId,
   selectedSetId,
   recommendedSetId,
   weekday,
   liturgicalSeason,
+  localDate,
   includeFatimaPrayer,
   ready,
   selectedDesignId,
@@ -705,10 +723,12 @@ function RosaryThreshold({
   onToggleFatima,
   onBegin,
 }: {
+  currentStepId: string;
   selectedSetId: MysterySetId;
   recommendedSetId: MysterySetId;
   weekday: string;
   liturgicalSeason: string;
+  localDate: string;
   includeFatimaPrayer: boolean;
   ready: boolean;
   selectedDesignId: RosaryDesignId;
@@ -783,6 +803,17 @@ function RosaryThreshold({
             Begin the {selectedSet.shortTitle} Mysteries
             <ChevronRight aria-hidden className="size-5" />
           </button>
+
+          <AskFatherKoverman
+            context={{
+              kind: "rosary",
+              localDate,
+              mysterySetId: selectedSet.id,
+              mysteryId: null,
+              stepId: currentStepId,
+            }}
+            label={`Ask about the ${selectedSet.shortTitle} Mysteries`}
+          />
         </div>
       </div>
     </section>

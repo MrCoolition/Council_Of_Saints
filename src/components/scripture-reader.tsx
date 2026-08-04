@@ -17,6 +17,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { AskFatherKoverman } from "@/components/father-koverman";
 import {
   formatScriptureReference,
   getAdjacentScriptureChapter,
@@ -609,6 +610,22 @@ export function ScriptureReader({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <AskFatherKoverman
+                  context={{
+                    kind: "scripture",
+                    bookId: selectedBook.id,
+                    chapter: location.chapter,
+                    verseStart:
+                      showFullChapter || !selectedRange
+                        ? null
+                        : selectedRange.verseStart,
+                    verseEnd:
+                      showFullChapter || !selectedRange
+                        ? null
+                        : selectedRange.verseEnd,
+                  }}
+                  label="Ask about this passage"
+                />
                 <button
                   aria-pressed={isBookmarked}
                   className={[

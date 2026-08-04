@@ -130,7 +130,10 @@ export default async function Home() {
 
         <HolyClock />
 
-        <OfficeGuidePanels guides={today.officeGuides} />
+        <OfficeGuidePanels
+          guides={today.officeGuides}
+          localDate={today.localDate}
+        />
 
         <section aria-labelledby="library-heading">
           <div className="sacred-rule mb-4" />

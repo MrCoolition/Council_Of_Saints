@@ -1039,8 +1039,8 @@ export function HolyClockDial({
 function polarPoint(angleInDegrees: number, radius: number) {
   const angleInRadians = (angleInDegrees * Math.PI) / 180;
   return {
-    x: CLOCK_CENTER + radius * Math.cos(angleInRadians),
-    y: CLOCK_CENTER + radius * Math.sin(angleInRadians),
+    x: Number((CLOCK_CENTER + radius * Math.cos(angleInRadians)).toFixed(4)),
+    y: Number((CLOCK_CENTER + radius * Math.sin(angleInRadians)).toFixed(4)),
   };
 }
 

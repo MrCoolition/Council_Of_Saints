@@ -21,6 +21,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { AskFatherKoverman } from "@/components/father-koverman";
 import {
   APOSTLES_CREED_TEXT,
   GLORIA_TEXT,
@@ -791,6 +792,12 @@ function MassExperience({
       <div className="mx-auto w-full max-w-5xl px-4 pb-24 pt-10 sm:px-6 sm:pt-16 lg:px-8">
         <RiteSection
           accent={liturgicalAccent}
+          fatherContext={{
+            kind: "mass",
+            localDate: celebration.localDate,
+            mode: celebration.mode,
+            sectionId: massSections[0].id,
+          }}
           nextSection={massSections[1]}
           section={massSections[0]}
         >
@@ -804,6 +811,12 @@ function MassExperience({
 
         <RiteSection
           accent={liturgicalAccent}
+          fatherContext={{
+            kind: "mass",
+            localDate: celebration.localDate,
+            mode: celebration.mode,
+            sectionId: massSections[1].id,
+          }}
           nextSection={massSections[2]}
           section={massSections[1]}
         >
@@ -816,6 +829,12 @@ function MassExperience({
 
         <RiteSection
           accent={liturgicalAccent}
+          fatherContext={{
+            kind: "mass",
+            localDate: celebration.localDate,
+            mode: celebration.mode,
+            sectionId: massSections[2].id,
+          }}
           nextSection={massSections[3]}
           section={massSections[2]}
         >
@@ -828,6 +847,12 @@ function MassExperience({
 
         <RiteSection
           accent={liturgicalAccent}
+          fatherContext={{
+            kind: "mass",
+            localDate: celebration.localDate,
+            mode: celebration.mode,
+            sectionId: massSections[3].id,
+          }}
           nextSection={null}
           section={massSections[3]}
         >
@@ -981,11 +1006,18 @@ function MassRiteRail({
 function RiteSection({
   accent,
   children,
+  fatherContext,
   nextSection,
   section,
 }: {
   accent: string;
   children: ReactNode;
+  fatherContext: {
+    kind: "mass";
+    localDate: string;
+    mode: "daytime" | "anticipated";
+    sectionId: string;
+  };
   nextSection: MassOrderSection | null;
   section: MassOrderSection;
 }) {
@@ -996,7 +1028,7 @@ function RiteSection({
       id={`rite-${section.id}`}
       style={{ "--section-accent": accent } as CSSProperties}
     >
-      <header className="mb-8 grid gap-4 sm:grid-cols-[4rem_minmax(0,1fr)] sm:items-center">
+      <header className="mb-8 grid gap-4 sm:grid-cols-[4rem_minmax(0,1fr)_auto] sm:items-center">
         <span className="inline-flex size-14 items-center justify-center rounded-full border border-[color:var(--section-accent)]/35 bg-[color:var(--section-accent)]/8 font-serif text-xl text-[color:var(--section-accent)]">
           {String(
             MASS_ORDER_SECTIONS.findIndex(
@@ -1013,6 +1045,11 @@ function RiteSection({
             {section.title}
           </h2>
         </div>
+        <AskFatherKoverman
+          className="sm:justify-self-end"
+          context={fatherContext}
+          label={`Ask about ${section.shortTitle}`}
+        />
       </header>
 
       {children}
