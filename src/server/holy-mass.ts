@@ -41,6 +41,8 @@ export type HolyMassLoadedPsalm = HolyMassLoadedSelection & {
 export type HolyMassLoadedOption = {
   id: string;
   label: string;
+  description: string;
+  officialUrl: string | null;
   firstReading: HolyMassLoadedSelection;
   responsorialPsalm: HolyMassLoadedPsalm;
   secondReading: HolyMassLoadedSelection | null;
@@ -236,6 +238,8 @@ async function loadOption(
   return {
     id: option.id,
     label: option.label,
+    description: option.description,
+    officialUrl: option.officialUrl ?? null,
     firstReading,
     responsorialPsalm,
     secondReading,

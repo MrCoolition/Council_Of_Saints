@@ -29,6 +29,8 @@ export type FatherContextLocator =
       localDate: string;
       mode: "daytime" | "anticipated";
       sectionId: string;
+      readingOptionId: string | null;
+      readingTranslation: "us-lectionary" | "douay-rheims";
     }
   | {
       kind: "scripture";
@@ -138,7 +140,11 @@ export function isFatherContextLocator(
       typeof value.localDate === "string" &&
       isoDatePattern.test(value.localDate) &&
       (value.mode === "daytime" || value.mode === "anticipated") &&
-      isBoundedString(value.sectionId, 64)
+      isBoundedString(value.sectionId, 64) &&
+      (value.readingOptionId === null ||
+        isBoundedString(value.readingOptionId, 80)) &&
+      (value.readingTranslation === "us-lectionary" ||
+        value.readingTranslation === "douay-rheims")
     );
   }
 

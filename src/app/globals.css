@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../node_modules/streamdown/dist/*.js";
 
 :root {
   color-scheme: light;
@@ -1661,4 +1662,62 @@ details > summary::-webkit-details-marker {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+.father-markdown {
+  display: grid;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.father-markdown :where(h1, h2, h3, h4) {
+  color: var(--foreground);
+  font-family: var(--font-reading);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.father-markdown h1 { font-size: 1.35rem; }
+.father-markdown h2 { font-size: 1.2rem; }
+.father-markdown h3 { font-size: 1.08rem; }
+
+.father-markdown :where(p, li) {
+  line-height: 1.7;
+}
+
+.father-markdown :where(ul, ol) {
+  display: grid;
+  gap: 0.45rem;
+  padding-left: 1.25rem;
+}
+
+.father-markdown ul { list-style: disc; }
+.father-markdown ol { list-style: decimal; }
+
+.father-markdown :where(strong, [data-streamdown="strong"]) {
+  color: var(--foreground);
+  font-weight: 800;
+}
+
+.father-markdown blockquote {
+  border-left: 3px solid var(--gilt);
+  color: var(--muted);
+  font-family: var(--font-reading);
+  font-style: italic;
+  padding-left: 1rem;
+}
+
+.father-markdown a {
+  color: var(--ecclesial-green);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.father-markdown :not(pre) > code {
+  border: 1px solid var(--hairline);
+  border-radius: 0.35rem;
+  background: var(--panel-soft);
+  font-size: 0.84em;
+  padding: 0.1rem 0.3rem;
 }

@@ -8,7 +8,6 @@ import {
   MessageCircle,
   Plus,
   Send,
-  ShieldCheck,
   Sparkles,
   Trash2,
   X,
@@ -29,8 +28,7 @@ import type {
   FatherThread,
   FatherThreadSummary,
 } from "@/lib/ai/contracts";
-
-const noticeStorageKey = "sanctum-council:father-koverman-notice:v1";
+import { MessageResponse } from "@/components/ai-elements/message";
 
 type FatherKovermanContextValue = {
   openFather: (locator: FatherContextLocator) => void;
@@ -51,19 +49,11 @@ export function FatherKovermanProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [noticeAccepted, setNoticeAccepted] = useState(false);
   const [threadUsesCurrentLocator, setThreadUsesCurrentLocator] = useState(false);
   const dialogRef = useRef<HTMLElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const requestCounterRef = useRef(0);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setNoticeAccepted(window.localStorage.getItem(noticeStorageKey) === "1");
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
 
   const loadContextThread = useCallback(
     async (nextLocator: FatherContextLocator, forceNew = false) => {
@@ -263,18 +253,13 @@ export function FatherKovermanProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  function acceptNotice() {
-    window.localStorage.setItem(noticeStorageKey, "1");
-    setNoticeAccepted(true);
-  }
-
   const contextValue = useMemo(() => ({ openFather }), [openFather]);
 
   return (
     <FatherKovermanContext.Provider value={contextValue}>
       {children}
       <button
-        aria-label="Open Father Koverman, AI Catholic Priest and Scripture Guide"
+        aria-label="Open Father Koverman, Catholic Priest and Scripture Guide"
         className="fixed bottom-20 right-4 z-40 inline-flex min-h-12 items-center gap-2 rounded-full border border-gilt/45 bg-sanctuary-night px-4 text-sm font-bold text-vellum shadow-[var(--shadow-raised)] transition hover:-translate-y-0.5 hover:border-gilt sm:bottom-6 sm:right-6"
         onClick={() => openFather({ kind: "general" })}
         type="button"
@@ -307,7 +292,7 @@ export function FatherKovermanProvider({ children }: { children: ReactNode }) {
                   </span>
                   <div className="min-w-0">
                     <p className="text-[0.68rem] font-bold uppercase tracking-[0.16em] text-[var(--gilt-light)]">
-                      AI Catholic Priest &amp; Scripture Guide
+                      Catholic Priest &amp; Scripture Guide
                     </p>
                     <h2 className="mt-1 truncate font-serif text-2xl font-semibold">
                       Father Koverman
@@ -345,36 +330,6 @@ export function FatherKovermanProvider({ children }: { children: ReactNode }) {
                 </button>
               </div>
             </header>
-
-            {!noticeAccepted ? (
-              <div className="border-b border-gilt/25 bg-gilt/10 p-4 sm:p-5">
-                <div className="flex gap-3">
-                  <ShieldCheck
-                    aria-hidden
-                    className="mt-0.5 size-5 shrink-0 text-ecclesial-green"
-                  />
-                  <div>
-                    <p className="text-sm font-bold text-foreground">
-                      Before your first conversation
-                    </p>
-                    <p className="mt-1 text-sm leading-6 text-muted">
-                      Father Koverman is AI, not an ordained priest. He cannot
-                      absolve sins or replace your priest, confessor, spiritual
-                      director, clinician, or emergency services. Conversations
-                      are sent to OpenAI and saved to your Sanctum account until
-                      you delete them.
-                    </p>
-                    <button
-                      className="mt-3 min-h-10 rounded-full bg-ecclesial-green px-4 text-xs font-bold text-white"
-                      onClick={acceptNotice}
-                      type="button"
-                    >
-                      I understand
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
 
             {error ? (
               <p className="border-b border-oxblood/20 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
@@ -420,16 +375,12 @@ export function FatherKovermanProvider({ children }: { children: ReactNode }) {
                     ) : null}
                   </div>
                 </div>
-                <FatherChat
-                  key={thread.id}
-                  noticeAccepted={noticeAccepted}
-                  thread={thread}
-                />
+                <FatherChat key={thread.id} thread={thread} />
               </>
             ) : (
               <div className="flex flex-1 items-center justify-center px-6 text-center text-sm leading-6 text-muted">
-                Father Koverman is unavailable until the AI and account database
-                are configured.
+                Father Koverman is unavailable until the account database is
+                configured.
               </div>
             )}
           </aside>
@@ -466,13 +417,7 @@ export function AskFatherKoverman({
   );
 }
 
-function FatherChat({
-  noticeAccepted,
-  thread,
-}: {
-  noticeAccepted: boolean;
-  thread: FatherThread;
-}) {
+function FatherChat({ thread }: { thread: FatherThread }) {
   const [input, setInput] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const transport = useMemo(
@@ -505,7 +450,7 @@ function FatherChat({
   function submitMessage() {
     const text = input.trim();
 
-    if (!text || busy || !noticeAccepted) {
+    if (!text || busy) {
       return;
     }
 
@@ -575,7 +520,7 @@ function FatherChat({
           </label>
           <textarea
             className="min-h-20 w-full resize-none bg-transparent px-2 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted"
-            disabled={!noticeAccepted || busy}
+            disabled={busy}
             id={`father-message-${thread.id}`}
             maxLength={2_000}
             onChange={(event) => setInput(event.currentTarget.value)}
@@ -585,11 +530,7 @@ function FatherChat({
                 submitMessage();
               }
             }}
-            placeholder={
-              noticeAccepted
-                ? "Ask about this prayer, passage, or formation context…"
-                : "Acknowledge the AI notice to begin."
-            }
+            placeholder="Ask about this prayer, passage, or formation context…"
             value={input}
           />
           <div className="flex items-center justify-between gap-3 px-1 pb-1">
@@ -608,7 +549,7 @@ function FatherChat({
               <button
                 aria-label="Send message"
                 className="inline-flex size-10 items-center justify-center rounded-full bg-ecclesial-green text-white transition disabled:cursor-not-allowed disabled:opacity-45"
-                disabled={!noticeAccepted || !input.trim()}
+                disabled={!input.trim()}
                 type="submit"
               >
                 <Send aria-hidden className="size-4" />
@@ -616,9 +557,6 @@ function FatherChat({
             )}
           </div>
         </form>
-        <p className="mt-2 text-center text-[0.68rem] leading-4 text-muted">
-          AI can err. Verify serious spiritual or moral questions with a priest.
-        </p>
       </div>
     </div>
   );
@@ -638,13 +576,19 @@ function FatherMessage({ message }: { message: UIMessage }) {
       }`}
     >
       <p className="mb-1 text-[0.68rem] font-bold uppercase tracking-[0.12em] opacity-70">
-        {message.role === "user" ? "You" : "Father Koverman · AI"}
+        {message.role === "user" ? "You" : "Father Koverman"}
       </p>
       {message.parts.map((part, index) =>
         part.type === "text" ? (
-          <p className="whitespace-pre-wrap" key={`${message.id}:text:${index}`}>
-            {part.text}
-          </p>
+          message.role === "assistant" ? (
+            <MessageResponse key={`${message.id}:text:${index}`}>
+              {part.text}
+            </MessageResponse>
+          ) : (
+            <p className="whitespace-pre-wrap" key={`${message.id}:text:${index}`}>
+              {part.text}
+            </p>
+          )
         ) : null,
       )}
       {sources.length > 0 ? (

@@ -28,6 +28,17 @@ function validateContextContracts() {
   );
   assert(
     isFatherContextLocator({
+      kind: "mass",
+      localDate: "2026-08-04",
+      mode: "daytime",
+      sectionId: "word",
+      readingOptionId: "saint-proper",
+      readingTranslation: "us-lectionary",
+    }),
+    "selected Mass reading context is valid",
+  );
+  assert(
+    isFatherContextLocator({
       kind: "scripture",
       bookId: "john",
       chapter: 3,
@@ -96,6 +107,18 @@ async function validatePersistenceAndSecretBoundaries() {
     path.join(root, "src", "app", "api", "father", "chat", "route.ts"),
     "utf8",
   );
+  const fatherComponent = await readFile(
+    path.join(root, "src", "components", "father-koverman.tsx"),
+    "utf8",
+  );
+  const messageResponse = await readFile(
+    path.join(root, "src", "components", "ai-elements", "message.tsx"),
+    "utf8",
+  );
+  const globalStyles = await readFile(
+    path.join(root, "src", "app", "globals.css"),
+    "utf8",
+  );
 
   assert(
     migration.includes("father_koverman_thread_user_isolation"),
@@ -119,8 +142,22 @@ async function validatePersistenceAndSecretBoundaries() {
     "Catechism lookup must remain restricted to Vatican domains",
   );
   assert(
-    fatherRoute.includes("cannot administer sacraments"),
-    "the AI priest persona must retain its sacramental boundary",
+    fatherRoute.includes("Never mention artificial intelligence") &&
+      fatherRoute.includes("never ask the user to repeat them"),
+    "Father Koverman must stay in character and use supplied context directly",
+  );
+  assert(
+    fatherComponent.includes("<MessageResponse") &&
+      messageResponse.includes("<Streamdown") &&
+      globalStyles.includes(".father-markdown"),
+    "Father Koverman responses must render formatted streaming Markdown",
+  );
+  assert(
+    !fatherComponent.includes("Father Koverman · AI") &&
+      !fatherComponent.includes("Before your first conversation") &&
+      !fatherComponent.includes("AI can err") &&
+      !fatherComponent.includes("noticeAccepted"),
+    "Father Koverman must not show identity notices or onboarding gates",
   );
 }
 

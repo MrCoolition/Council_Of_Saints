@@ -12,6 +12,7 @@ import {
 import {
   AUGUST_1_2026_US_MASS_READINGS,
   AUGUST_2_2026_US_MASS_READINGS,
+  AUGUST_4_2026_US_MASS_READINGS,
   getCuratedUsMassReadingsEntries,
   getDouayDisplayCitation,
   getUsMassReadingsForDate,
@@ -195,6 +196,11 @@ function validateOfficialUrls() {
     getUsccbDailyReadingsUrl("2026-08-02") ===
       "https://bible.usccb.org/bible/readings/080226",
     "The August 2 USCCB URL must be extensionless",
+  );
+  assert(
+    getUsccbDailyReadingsUrl("2026-08-04") ===
+      "https://bible.usccb.org/bible/readings/080426",
+    "The August 4 USCCB URL must be extensionless",
   );
   assert(
     !getUsccbDailyReadingsUrl("2026-07-29").endsWith(".cfm"),
@@ -388,6 +394,26 @@ function validateGoldenFixtures() {
   ]);
   assertSelection(august2.gospelChoices[0], "Matthew 14:13–21", [
     scripturePassage("matthew", 14, 13, 21),
+  ]);
+
+  const august4 = getUsMassReadingsForDate("2026-08-04");
+  assert(
+    august4 === AUGUST_4_2026_US_MASS_READINGS &&
+      august4.status === "curated" &&
+      august4.options.length === 2,
+    "August 4 must expose both the Saint John Vianney proper and weekday sets",
+  );
+  const johnVianneyProper = AUGUST_4_2026_US_MASS_READINGS.options[0];
+  assert(
+    johnVianneyProper.id === "saint-proper",
+    "The Saint John Vianney proper must be the default set",
+  );
+  assertSelection(johnVianneyProper.firstReading, "Ezekiel 3:17–21", [
+    scripturePassage("ezekiel", 3, 17, 21),
+  ]);
+  assertSelection(johnVianneyProper.gospelChoices[0], "Matthew 9:35–10:1", [
+    scripturePassage("matthew", 9, 35, 38),
+    scripturePassage("matthew", 10, 1, 1),
   ]);
 }
 

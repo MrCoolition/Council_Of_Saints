@@ -657,6 +657,13 @@ function MassExperience({
   const [activeSection, setActiveSection] = useState(
     massSections[0].id,
   );
+  const [readingOptionId, setReadingOptionId] = useState<string | null>(
+    celebration.options[0]?.id ?? null,
+  );
+  const selectedReadingOption =
+    celebration.options.find((option) => option.id === readingOptionId) ??
+    celebration.options[0] ??
+    null;
   const liturgicalAccent = getLiturgicalAccent(
     celebration.liturgicalColor,
   );
@@ -797,6 +804,8 @@ function MassExperience({
             localDate: celebration.localDate,
             mode: celebration.mode,
             sectionId: massSections[0].id,
+            readingOptionId: selectedReadingOption?.id ?? null,
+            readingTranslation,
           }}
           nextSection={massSections[1]}
           section={massSections[0]}
@@ -816,13 +825,17 @@ function MassExperience({
             localDate: celebration.localDate,
             mode: celebration.mode,
             sectionId: massSections[1].id,
+            readingOptionId: selectedReadingOption?.id ?? null,
+            readingTranslation,
           }}
           nextSection={massSections[2]}
           section={massSections[1]}
         >
           <LiturgyOfTheWord
             celebration={celebration}
+            onReadingOptionChange={setReadingOptionId}
             onReadingTranslationChange={onReadingTranslationChange}
+            readingOption={selectedReadingOption}
             readingTranslation={readingTranslation}
           />
         </RiteSection>
@@ -834,6 +847,8 @@ function MassExperience({
             localDate: celebration.localDate,
             mode: celebration.mode,
             sectionId: massSections[2].id,
+            readingOptionId: selectedReadingOption?.id ?? null,
+            readingTranslation,
           }}
           nextSection={massSections[3]}
           section={massSections[2]}
@@ -852,6 +867,8 @@ function MassExperience({
             localDate: celebration.localDate,
             mode: celebration.mode,
             sectionId: massSections[3].id,
+            readingOptionId: selectedReadingOption?.id ?? null,
+            readingTranslation,
           }}
           nextSection={null}
           section={massSections[3]}
@@ -1017,6 +1034,8 @@ function RiteSection({
     localDate: string;
     mode: "daytime" | "anticipated";
     sectionId: string;
+    readingOptionId: string | null;
+    readingTranslation: MassReadingTranslation;
   };
   nextSection: MassOrderSection | null;
   section: MassOrderSection;
@@ -1217,18 +1236,17 @@ function IntroductoryRites({
 
 function LiturgyOfTheWord({
   celebration,
+  onReadingOptionChange,
   onReadingTranslationChange,
+  readingOption,
   readingTranslation,
 }: {
   celebration: HolyMassCelebrationView;
+  onReadingOptionChange: (optionId: string) => void;
   onReadingTranslationChange: (translation: MassReadingTranslation) => void;
+  readingOption: HolyMassLoadedOption | null;
   readingTranslation: MassReadingTranslation;
 }) {
-  const [optionId, setOptionId] = useState(celebration.options[0]?.id ?? "");
-  const selectedOption =
-    celebration.options.find((option) => option.id === optionId) ??
-    celebration.options[0] ??
-    null;
   const wordRites: MassOrderItem[] = [MASS_ORDER_SECTIONS[1].items[0]];
 
   if (celebration.riteKind === "holy-thursday") {
@@ -1276,17 +1294,39 @@ function LiturgyOfTheWord({
 
   return (
     <div className="space-y-8">
+      <MassReadingSetSelector
+        onChange={onReadingOptionChange}
+        options={celebration.options}
+        selectedOption={readingOption}
+      />
+
       <MassTranslationToggle
         onChange={onReadingTranslationChange}
         value={readingTranslation}
       />
 
       <div hidden={readingTranslation !== "us-lectionary"}>
-        {celebration.massLectionary ? (
+        {celebration.massLectionary &&
+        (!readingOption ||
+          readingOption.id === "weekday" ||
+          readingOption.id === "appointed") ? (
           <UsccbMassReadings
             item={celebration.massLectionary}
             requirements={celebration.profile.requirements}
           />
+        ) : readingOption ? (
+          <div className="space-y-8">
+            <SelectedOfficialReadingSet option={readingOption} />
+            <MassReadings
+              option={readingOption}
+              requirements={celebration.profile.requirements}
+              returnSource={
+                celebration.mode === "anticipated"
+                  ? "mass-anticipated"
+                  : "mass"
+              }
+            />
+          </div>
         ) : (
           <section className="illuminated-panel rounded-3xl border border-[var(--line)] bg-[var(--panel)] p-6 text-center sm:p-10">
             <BookOpen
@@ -1310,32 +1350,9 @@ function LiturgyOfTheWord({
       </div>
 
       <div className="space-y-8" hidden={readingTranslation !== "douay-rheims"}>
-        {celebration.options.length > 1 ? (
-          <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-soft)] p-4">
-            <label
-              className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--muted)]"
-              htmlFor="mass-reading-option"
-            >
-              Lectionary
-            </label>
-            <select
-              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--vellum)] px-4 text-sm font-semibold text-[var(--foreground)]"
-              id="mass-reading-option"
-              onChange={(event) => setOptionId(event.target.value)}
-              value={selectedOption?.id ?? ""}
-            >
-              {celebration.options.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-
-        {selectedOption ? (
+        {readingOption ? (
           <MassReadings
-            option={selectedOption}
+            option={readingOption}
             requirements={celebration.profile.requirements}
             returnSource={
               celebration.mode === "anticipated" ? "mass-anticipated" : "mass"
@@ -1413,6 +1430,114 @@ function MassTranslationToggle({
         })}
       </div>
     </fieldset>
+  );
+}
+
+function MassReadingSetSelector({
+  onChange,
+  options,
+  selectedOption,
+}: {
+  onChange: (optionId: string) => void;
+  options: HolyMassLoadedOption[];
+  selectedOption: HolyMassLoadedOption | null;
+}) {
+  if (options.length <= 1) {
+    return null;
+  }
+
+  return (
+    <fieldset className="rounded-3xl border border-[color:var(--gilt)]/45 bg-[var(--panel)] p-4 shadow-[0_18px_56px_rgba(11,28,22,0.055)] sm:p-6">
+      <legend className="px-2 font-serif text-2xl font-semibold text-[var(--foreground)]">
+        Readings being proclaimed
+      </legend>
+      <p className="mt-1 px-2 text-sm leading-6 text-[var(--muted)]">
+        A memorial may use its proper readings or the weekday cycle. Choose the
+        set your parish is proclaiming now.
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {options.map((option) => {
+          const selected = option.id === selectedOption?.id;
+          return (
+            <button
+              aria-pressed={selected}
+              className={`rounded-2xl border p-4 text-left transition ${
+                selected
+                  ? "border-[color:var(--gilt)] bg-[var(--sanctuary-night)] text-[var(--vellum)] shadow-[0_12px_30px_rgba(11,28,22,0.16)]"
+                  : "border-[var(--line)] bg-[var(--panel-soft)] text-[var(--foreground)] hover:border-[color:var(--gilt)]"
+              }`}
+              key={option.id}
+              onClick={() => onChange(option.id)}
+              type="button"
+            >
+              <span className="block text-sm font-extrabold">{option.label}</span>
+              <span
+                className={`mt-2 block text-xs leading-5 ${
+                  selected ? "text-[var(--parchment)]/80" : "text-[var(--muted)]"
+                }`}
+              >
+                {option.firstReading.displayCitation} · {option.gospelChoices[0]?.displayCitation}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+function SelectedOfficialReadingSet({
+  option,
+}: {
+  option: HolyMassLoadedOption;
+}) {
+  return (
+    <section className="rounded-3xl border border-[color:var(--gilt)]/45 bg-[var(--panel-soft)] p-5 sm:p-7">
+      <p className="text-xs font-bold uppercase tracking-[0.13em] text-[color:var(--liturgical-accent)]">
+        Selected for this Mass
+      </p>
+      <h3 className="mt-2 font-serif text-3xl font-semibold text-[var(--foreground)]">
+        {option.label}
+      </h3>
+      <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
+        {option.description}
+      </p>
+      <dl className="mt-5 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-[var(--line)] bg-[var(--vellum)] p-4">
+          <dt className="text-[0.68rem] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">
+            First reading
+          </dt>
+          <dd className="mt-1 font-serif text-lg font-semibold text-[var(--foreground)]">
+            {option.firstReading.displayCitation}
+          </dd>
+        </div>
+        <div className="rounded-xl border border-[var(--line)] bg-[var(--vellum)] p-4">
+          <dt className="text-[0.68rem] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">
+            Gospel
+          </dt>
+          <dd className="mt-1 font-serif text-lg font-semibold text-[var(--foreground)]">
+            {option.gospelChoices
+              .map((gospel) => gospel.displayCitation)
+              .join(" or ")}
+          </dd>
+        </div>
+      </dl>
+      {option.officialUrl ? (
+        <a
+          className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-full bg-[var(--sanctuary-night)] px-4 text-xs font-bold text-[var(--vellum)]"
+          href={option.officialUrl}
+          rel="noreferrer"
+          target="_blank"
+        >
+          Verify at USCCB
+          <ChevronRight aria-hidden className="size-4" />
+        </a>
+      ) : null}
+      <p className="mt-4 text-xs leading-5 text-[var(--muted)]">
+        The Scripture text below is the public-domain Douay-Rheims; the
+        citations follow the selected U.S. Lectionary option.
+      </p>
+    </section>
   );
 }
 

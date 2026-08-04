@@ -82,26 +82,57 @@ export async function resolveFatherContext(
       const section =
         MASS_ORDER_SECTIONS.find((candidate) => candidate.id === locator.sectionId) ??
         MASS_ORDER_SECTIONS[0];
-      const readingContext = celebration.options
-        .flatMap((option) => [
-          option.firstReading,
-          option.responsorialPsalm,
-          ...(option.secondReading ? [option.secondReading] : []),
-          ...option.gospelChoices,
-        ])
-        .map(formatMassReading)
-        .join("\n\n");
+      const selectedOption = locator.readingOptionId
+        ? celebration.options.find(
+            (option) => option.id === locator.readingOptionId,
+          ) ?? null
+        : celebration.options[0] ?? null;
+      const liveLectionaryCitations = celebration.massLectionary
+        ? celebration.massLectionary.sections
+            .map((reading) => `${reading.title}: ${reading.citation}`)
+            .join("\n")
+        : "";
+      const selectedReadingContext = selectedOption
+        ? formatMassOption(selectedOption)
+        : liveLectionaryCitations;
+      const alternatives = celebration.options
+        .filter((option) => option.id !== selectedOption?.id)
+        .map(
+          (option) =>
+            `${option.label}: ${option.firstReading.displayCitation}; Gospel ${option.gospelChoices
+              .map((gospel) => gospel.displayCitation)
+              .join(" or ")}.`,
+        )
+        .join("\n");
+      const readingSetLabel =
+        selectedOption?.label ??
+        celebration.massLectionary?.title ??
+        "Live USCCB set";
 
       return {
         kind: "mass",
-        key: `mass:${celebration.id}:${section.id}`,
-        title: `${section.title} · ${celebration.title}`,
+        key: `mass:${celebration.id}:${section.id}:${selectedOption?.id ?? "live"}:${locator.readingTranslation}`,
+        title: `${section.title} · ${celebration.title} · ${readingSetLabel}`,
         body: limitContext(
           [
             formatLiturgicalDay(today),
+            `Civil date used by the Mass page: ${celebration.localDate}. Celebration mode: ${celebration.mode}.`,
             `Mass celebration: ${celebration.title}. ${celebration.rank}; ${celebration.liturgicalColor}; ${celebration.season}.`,
             `Current rite section: ${section.title}.`,
-            readingContext ? `Readings:\n${readingContext}` : "The local reading text is not available for this celebration.",
+            `The user selected the reading set "${readingSetLabel}" and the ${locator.readingTranslation === "us-lectionary" ? "U.S. Lectionary" : "Douay-Rheims"} view. This is the Mass currently being followed.`,
+            selectedReadingContext
+              ? `Selected readings:\n${selectedReadingContext}`
+              : "No reading citations are available. Say that plainly; do not guess.",
+            liveLectionaryCitations
+              ? `Live USCCB daily-feed citations for this civil date:\n${liveLectionaryCitations}`
+              : "The live USCCB daily feed is unavailable.",
+            alternatives
+              ? `Other valid reading set(s) modeled for this celebration:\n${alternatives}`
+              : "",
+            `Official daily readings: ${celebration.officialReadingsUrl}`,
+            selectedOption?.officialUrl
+              ? `Official source for the selected set: ${selectedOption.officialUrl}`
+              : "",
           ].join("\n\n"),
         ),
         starterPrompts: [
@@ -333,6 +364,19 @@ function formatMassReading(
     .flatMap((segment) => segment.verses.map((verse) => verse.text))
     .join(" ");
   return `${reading.title}: ${reading.displayCitation}. ${text}`;
+}
+
+function formatMassOption(
+  option: Awaited<ReturnType<typeof getHolyMassPageData>>["daytime"]["options"][number],
+) {
+  return [
+    `Reading-set label: ${option.label}. ${option.description}`,
+    formatMassReading(option.firstReading),
+    formatMassReading(option.responsorialPsalm),
+    ...(option.secondReading ? [formatMassReading(option.secondReading)] : []),
+    formatMassReading(option.gospelAcclamation),
+    ...option.gospelChoices.map(formatMassReading),
+  ].join("\n\n");
 }
 
 function formatPassageReference(

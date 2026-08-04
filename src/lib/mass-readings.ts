@@ -38,6 +38,7 @@ export type MassReadingOption = {
   id: string;
   label: string;
   description: string;
+  officialUrl?: string;
   firstReading: MassScriptureSelection;
   responsorialPsalm: MassResponsorialPsalm;
   secondReading?: MassScriptureSelection;
@@ -87,6 +88,9 @@ const USCCB_2026_CALENDAR_URL =
 const JULY_29_2026_DAILY_URL = getUsccbDailyReadingsUrl("2026-07-29");
 const AUGUST_1_2026_DAILY_URL = getUsccbDailyReadingsUrl("2026-08-01");
 const AUGUST_2_2026_DAILY_URL = getUsccbDailyReadingsUrl("2026-08-02");
+const AUGUST_4_2026_DAILY_URL = getUsccbDailyReadingsUrl("2026-08-04");
+const JOHN_VIANNEY_PROPER_URL =
+  "https://bible.usccb.org/bible/readings/memorial-saint-john-vianney-priest";
 const MARTHA_MARY_LAZARUS_PROPER_URL =
   "https://bible.usccb.org/bible/readings/0729-memorial-martha.cfm";
 
@@ -360,10 +364,131 @@ export const AUGUST_2_2026_US_MASS_READINGS = {
   ],
 } as const satisfies CuratedMassReadingsEntry;
 
+export const AUGUST_4_2026_US_MASS_READINGS = {
+  status: "curated",
+  localDate: "2026-08-04",
+  jurisdiction: "US",
+  observance: {
+    title: "Memorial of Saint John Vianney, Priest",
+    rank: "memorial",
+    obligatory: true,
+    liturgicalColor: "white",
+    lectionaryNumbers: [408, 612],
+    profile: MEMORIAL_MASS_PROFILE,
+  },
+  options: [
+    {
+      id: "saint-proper",
+      label: "Saint John Vianney proper",
+      description:
+        "The readings suggested by the U.S. Lectionary for the Memorial of Saint John Vianney, Priest (no. 612).",
+      officialUrl: JOHN_VIANNEY_PROPER_URL,
+      firstReading: selection(
+        "First Reading",
+        "Ezekiel 3:17–21",
+        "Douay Ezekiel 3:17–21",
+        [passage("ezekiel", 3, 17, 21)],
+      ),
+      responsorialPsalm: responsorialPsalm(
+        "Psalm 117:1bc, 2",
+        "Douay Psalm 116:1–2",
+        [passage("psalms", 116, 1, 2)],
+        ["Go out to all the world and tell the Good News."],
+        ["Mark 16:15"],
+        [douaySource("Douay Mark 16:15", [passage("mark", 16, 15, 15)])],
+      ),
+      gospelAcclamation: selection(
+        "Gospel Acclamation",
+        "Luke 4:18",
+        "Douay Luke 4:18",
+        [passage("luke", 4, 18, 18)],
+      ),
+      gospelChoices: [
+        selection(
+          "Gospel",
+          "Matthew 9:35–10:1",
+          "Douay Matthew 9:35–10:1",
+          [
+            passage("matthew", 9, 35, 38),
+            passage("matthew", 10, 1, 1),
+          ],
+        ),
+      ],
+    },
+    {
+      id: "weekday",
+      label: "Weekday cycle",
+      description:
+        "The Tuesday of the Eighteenth Week in Ordinary Time readings carried on the USCCB daily page (no. 408).",
+      officialUrl: AUGUST_4_2026_DAILY_URL,
+      firstReading: selection(
+        "First Reading",
+        "Jeremiah 30:1–2, 12–15, 18–22",
+        "Douay Jeremiah 30:1–2, 12–15, 18–22",
+        [
+          passage("jeremiah", 30, 1, 2),
+          passage("jeremiah", 30, 12, 15),
+          passage("jeremiah", 30, 18, 22),
+        ],
+      ),
+      responsorialPsalm: responsorialPsalm(
+        "Psalm 102:16–18, 19–21, 29, 22–23",
+        "Douay Psalm 101:16–23, 29",
+        [
+          passage("psalms", 101, 16, 23),
+          passage("psalms", 101, 29, 29),
+        ],
+        ["The Lord will build up Zion again, and appear in all his glory."],
+        ["Psalm 102:17"],
+        [douaySource("Douay Psalm 101:17", [passage("psalms", 101, 17, 17)])],
+      ),
+      gospelAcclamation: selection(
+        "Gospel Acclamation",
+        "John 1:49b",
+        "Douay John 1:49",
+        [passage("john", 1, 49, 49)],
+      ),
+      gospelChoices: [
+        selection(
+          "Gospel",
+          "Matthew 14:22–36",
+          "Douay Matthew 14:22–36",
+          [passage("matthew", 14, 22, 36)],
+        ),
+        selection(
+          "Alternate Gospel",
+          "Matthew 15:1–2, 10–14",
+          "Douay Matthew 15:1–2, 10–14",
+          [
+            passage("matthew", 15, 1, 2),
+            passage("matthew", 15, 10, 14),
+          ],
+        ),
+      ],
+    },
+  ],
+  validityExplanation:
+    "Both the weekday cycle and the Saint John Vianney proper are valid for this Memorial. The proper set appoints Ezekiel 3:17–21 and Matthew 9:35–10:1.",
+  additionalPermittedChoiceNote:
+    "The USCCB also permits readings from the Common of Pastors, Lectionary nos. 719–724.",
+  officialSources: [
+    officialSource(
+      "USCCB daily readings for August 4, 2026",
+      AUGUST_4_2026_DAILY_URL,
+    ),
+    officialSource(
+      "USCCB proper readings for Saint John Vianney",
+      JOHN_VIANNEY_PROPER_URL,
+    ),
+    officialSource("USCCB 2026 Liturgical Calendar", USCCB_2026_CALENDAR_URL),
+  ],
+} as const satisfies CuratedMassReadingsEntry;
+
 const CURATED_US_MASS_READINGS = new Map<string, CuratedMassReadingsEntry>([
   [JULY_29_2026_US_MASS_READINGS.localDate, JULY_29_2026_US_MASS_READINGS],
   [AUGUST_1_2026_US_MASS_READINGS.localDate, AUGUST_1_2026_US_MASS_READINGS],
   [AUGUST_2_2026_US_MASS_READINGS.localDate, AUGUST_2_2026_US_MASS_READINGS],
+  [AUGUST_4_2026_US_MASS_READINGS.localDate, AUGUST_4_2026_US_MASS_READINGS],
 ]);
 
 /**
