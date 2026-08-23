@@ -1,5 +1,4 @@
 import {
-  APOSTLES_CREED_TEXT,
   GLORIA_TEXT,
   MASS_ORDER_SECTIONS,
   NICENE_CREED_TEXT,
@@ -11,15 +10,9 @@ import { resolveSaturdayMassContext } from "./holy-mass";
 import { getScriptureBook, parseScriptureReference } from "./scripture";
 import type {
   HolyMassCelebrationView,
-  HolyMassLoadedOption,
-  HolyMassLoadedPsalm,
-  HolyMassLoadedSelection,
   HolyMassPageData,
 } from "@/server/holy-mass";
-import type {
-  UsccbLectionaryItem,
-  UsccbLectionarySection,
-} from "./usccb-lectionary";
+import type { UsccbLectionarySection } from "./usccb-lectionary";
 
 export type KindleMassForm = "auto" | "daytime" | "anticipated";
 
@@ -265,12 +258,6 @@ const SPECIAL_RITE_SECTIONS: Record<
       readings: true,
       items: [
         {
-          id: "old-testament",
-          title: "Old Testament Readings and Psalms",
-          posture: "Sit",
-          cue: "Listen as salvation history unfolds; answer each psalm and prayer.",
-        },
-        {
           id: "vigil-gloria",
           title: "Gloria",
           posture: "Stand",
@@ -288,18 +275,6 @@ const SPECIAL_RITE_SECTIONS: Record<
             },
             { role: "people", text: "Amen." },
           ],
-        },
-        {
-          id: "vigil-epistle",
-          title: "Epistle",
-          posture: "Sit",
-          cue: "Receive the apostolic reading and answer: Thanks be to God.",
-        },
-        {
-          id: "vigil-alleluia-gospel",
-          title: "Solemn Alleluia and Gospel",
-          posture: "Stand",
-          cue: "Rise for the solemn Alleluia and the Gospel of the Resurrection.",
         },
         {
           id: "vigil-homily",
@@ -385,12 +360,9 @@ export function resolveKindleMassView(
   const normalizedForm: KindleMassForm =
     form === "daytime" || form === "anticipated" ? form : "auto";
 
-  // Holy Saturday has no daytime Mass. The modern app deliberately enters the
-  // Vigil only after an explicit choice, rather than guessing from a clock.
+  // Holy Saturday has no daytime Mass, so its one Mass is the Easter Vigil.
   if (data.daytime.riteKind === "holy-saturday") {
-    return normalizedForm === "anticipated"
-      ? data.anticipated
-      : data.daytime;
+    return data.anticipated ?? data.daytime;
   }
 
   return resolveSaturdayMassContext({
@@ -421,7 +393,6 @@ export function renderKindleMassHtml(
   const header = renderCelebrationHeader(
     data,
     celebration,
-    options.form,
     basePath,
     preparedDate,
   );
@@ -430,9 +401,9 @@ export function renderKindleMassHtml(
     .map((section, index) => renderMassSection(section, index, sections))
     .join("");
   const preparedNotice = preparedDate
-    ? `<p class="prepared-copy">Prepared for Mass on ${escapeHtml(
+    ? `<p class="prepared-copy">Ready for church - ${escapeHtml(
         celebration.dateLabel,
-      )}. Keep this page open until Mass; the browser may also retain this dated copy for offline use.</p>`
+      )}.</p>`
     : "";
 
   return renderDocument({
@@ -550,19 +521,7 @@ function buildOrdinarySections(
           role: "rubric",
           text: "Bow profoundly at the words of the Incarnation.",
         },
-      ],
-      defaultVariantId: "nicene",
-      variants: [
-        {
-          id: "nicene",
-          label: "Nicene Creed",
-          lines: [{ role: "all", text: NICENE_CREED_TEXT }],
-        },
-        {
-          id: "apostles",
-          label: "Apostles' Creed",
-          lines: [{ role: "all", text: APOSTLES_CREED_TEXT }],
-        },
+        { role: "all", text: NICENE_CREED_TEXT },
       ],
     });
   }
@@ -590,7 +549,7 @@ function buildOrdinarySections(
       shortTitle: "The Word",
       title: MASS_ORDER_SECTIONS[1].title,
       body: [
-        renderReadings(readingCelebration, requirements),
+        renderReadings(readingCelebration),
         renderOrderItems(wordItems),
       ].join(""),
     },
@@ -626,7 +585,7 @@ function buildSpecialSections(
     title: section.title,
     body: [
       section.readings
-        ? renderReadings(readingCelebration, celebration.profile.requirements)
+        ? renderReadings(readingCelebration)
         : "",
       renderOrderItems(section.items),
     ].join(""),
@@ -637,60 +596,38 @@ function buildIntroductoryItems(
   celebration: HolyMassCelebrationView,
 ): MassOrderItem[] {
   const items = MASS_ORDER_SECTIONS[0].items;
+  const penitential = items.find((item) => item.id === "penitential-act");
   const kyrie = items.find((item) => item.id === "kyrie");
-  const ordered: MassOrderItem[] = items
-    .filter((item) => item.id !== "kyrie")
-    .map((item) => {
-      if (item.id !== "penitential-act") {
-        return item;
-      }
+  const penitentialForm =
+    penitential?.variants?.find(
+      (variant) => variant.id === penitential.defaultVariantId,
+    ) ?? penitential?.variants?.[0];
+  const kyrieForm =
+    kyrie?.variants?.find((variant) => variant.id === kyrie.defaultVariantId) ??
+    kyrie?.variants?.[0];
+  const ordered: MassOrderItem[] = items.flatMap((item) => {
+    if (item.id === "kyrie") {
+      return [];
+    }
+    if (item.id !== "penitential-act") {
+      return [item];
+    }
 
-      const penitentialVariants = (item.variants ?? []).flatMap((variant) => {
-        const actLines = [...(item.lines ?? []), ...variant.lines];
-        if (variant.id === "form-c") {
-          return [{ ...variant, lines: actLines }];
-        }
-
-        return (kyrie?.variants ?? []).map((kyrieVariant) => ({
-          id: `${variant.id}-${kyrieVariant.id}`,
-          label: `${variant.label} + ${kyrieVariant.label} Kyrie`,
-          lines: [
-            ...actLines,
-            { role: "rubric" as const, text: "The Kyrie follows." },
-            ...kyrieVariant.lines,
-          ],
-        }));
-      });
-
-      return {
+    return [
+      {
         ...item,
-        title: celebration.profile.requirements.sprinklingRite
-          ? "Penitential Act, Kyrie, or Sprinkling Rite"
-          : "Penitential Act and Kyrie",
-        lines: [],
-        defaultVariantId: "form-a-english",
-        variants: celebration.profile.requirements.sprinklingRite
-          ? [
-              ...penitentialVariants,
-              {
-                id: "sprinkling",
-                label: "Sprinkling Rite",
-                lines: [
-                  {
-                    role: "rubric" as const,
-                    text: "The priest blesses the water and sprinkles the assembly in remembrance of Baptism.",
-                  },
-                  { role: "people" as const, text: "Amen." },
-                  {
-                    role: "all" as const,
-                    text: "Join the appointed antiphon or song while the assembly is sprinkled.",
-                  },
-                ],
-              },
-            ]
-          : penitentialVariants,
-      };
-    });
+        title: "Penitential Act and Kyrie",
+        lines: [
+          ...(item.lines ?? []),
+          ...(penitentialForm?.lines ?? []),
+          { role: "rubric" as const, text: "The Kyrie follows." },
+          ...(kyrieForm?.lines ?? []),
+        ],
+        defaultVariantId: undefined,
+        variants: undefined,
+      },
+    ];
+  });
 
   if (celebration.riteKind === "palm-sunday") {
     const collect = ordered.find((item) => item.id === "collect");
@@ -699,58 +636,22 @@ function buildIntroductoryItems(
         id: "commemoration-entrance",
         title: "Commemoration of the Lord's Entrance",
         posture: "Stand",
-        defaultVariantId: "procession",
-        variants: [
+        lines: [
           {
-            id: "procession",
-            label: "Procession",
-            lines: [
-              {
-                role: "rubric",
-                text: "Gather at the appointed place with palms. The priest greets the people, blesses the branches, and proclaims the prayer.",
-              },
-              { role: "people", text: "And with your spirit." },
-              { role: "people", text: "Amen." },
-              {
-                role: "deacon",
-                text: "The Gospel of the Lord's entrance into Jerusalem is proclaimed.",
-              },
-              { role: "people", text: "Glory to you, O Lord." },
-              {
-                role: "people",
-                text: "Praise to you, Lord Jesus Christ.",
-              },
-              {
-                role: "rubric",
-                text: "Join the procession to the church, acclaiming Christ the King. Mass continues with the Collect.",
-              },
-            ],
+            role: "rubric",
+            text: "Gather at the appointed place with palms. The priest greets the people, blesses the branches, and proclaims the prayer.",
           },
+          { role: "people", text: "And with your spirit." },
+          { role: "people", text: "Amen." },
           {
-            id: "solemn-entrance",
-            label: "Solemn Entrance",
-            lines: [
-              {
-                role: "rubric",
-                text: "At the church entrance, hold the blessed palm and join the antiphon. The blessing and Gospel are celebrated without a procession from another place.",
-              },
-              { role: "people", text: "Hosanna in the highest." },
-              {
-                role: "rubric",
-                text: "The ministers enter the sanctuary. Mass continues with the Collect.",
-              },
-            ],
+            role: "deacon",
+            text: "The Gospel of the Lord's entrance into Jerusalem is proclaimed.",
           },
+          { role: "people", text: "Glory to you, O Lord." },
+          { role: "people", text: "Praise to you, Lord Jesus Christ." },
           {
-            id: "simple-entrance",
-            label: "Simple Entrance",
-            lines: [
-              {
-                role: "rubric",
-                text: "Join the entrance antiphon and follow the simple entrance used by the parish. Mass continues with the Collect.",
-              },
-              { role: "people", text: "Hosanna in the highest." },
-            ],
+            role: "rubric",
+            text: "Join the procession to the church, acclaiming Christ the King. Mass continues with the Collect.",
           },
         ],
       },
@@ -774,7 +675,6 @@ function buildIntroductoryItems(
 function renderCelebrationHeader(
   data: HolyMassPageData,
   celebration: HolyMassCelebrationView,
-  form: KindleMassForm,
   basePath: string,
   preparedDate: string | null,
 ) {
@@ -783,13 +683,7 @@ function renderCelebrationHeader(
     celebration.season,
     celebration.liturgicalColor,
     celebration.cycleLabel,
-    celebration.lectionaryNumbers.length > 0
-      ? `Lectionary ${celebration.lectionaryNumbers.join(" / ")}`
-      : null,
   ].filter((value): value is string => Boolean(value));
-  const modeControls = data.anticipated
-    ? renderMassFormControls(data, celebration, form, basePath, preparedDate)
-    : "";
   const prepareLink = preparedDate
     ? ""
     : `<p><a class="action" href="${escapeAttribute(
@@ -797,60 +691,17 @@ function renderCelebrationHeader(
           form: celebration.mode,
           offline: data.civilDate,
         }),
-      )}">Prepare for Mass</a></p><p class="source-note">Open the prepared page before leaving your connection, then keep it open for Mass.</p>`;
+      )}">Prepare for Mass</a></p>`;
 
   return [
     '<div class="masthead" id="top">',
-    '<p class="eyebrow">Sanctum Council - Holy Mass</p>',
+    '<p class="eyebrow">Holy Mass</p>',
     `<p class="date"><time datetime="${escapeAttribute(
       celebration.localDate,
     )}">${escapeHtml(celebration.dateLabel)}</time></p>`,
     `<h1>${escapeHtml(celebration.title)}</h1>`,
-    `<p class="facts">${details.map(escapeHtml).join(" - ")}</p>`,
-    modeControls,
+    `<p class="facts">${details.map(escapeHtml).join(" | ")}</p>`,
     prepareLink,
-    "</div>",
-  ].join("");
-}
-
-function renderMassFormControls(
-  data: HolyMassPageData,
-  celebration: HolyMassCelebrationView,
-  form: KindleMassForm,
-  basePath: string,
-  preparedDate: string | null,
-) {
-  if (preparedDate) {
-    return `<p class="mode">${
-      celebration.mode === "anticipated"
-        ? "Anticipated Sunday Mass"
-        : data.daytime.riteKind === "holy-saturday"
-          ? "Holy Saturday daytime"
-          : "Saturday daytime Mass"
-    }</p>`;
-  }
-
-  const choices: { form: KindleMassForm; label: string }[] = [
-    { form: "auto", label: "Auto" },
-    { form: "daytime", label: "Saturday" },
-    {
-      form: "anticipated",
-      label:
-        data.daytime.riteKind === "holy-saturday" ? "Easter Vigil" : "Sunday",
-    },
-  ];
-
-  return [
-    '<div class="mode"><strong>Saturday Mass:</strong> ',
-    choices
-      .map((choice) => {
-        const active = choice.form === form;
-        const href = buildInternalHref(basePath, { form: choice.form });
-        return `<a${active ? ' class="current"' : ""} href="${escapeAttribute(
-          href,
-        )}">${escapeHtml(choice.label)}</a>`;
-      })
-      .join(" | "),
     "</div>",
   ].join("");
 }
@@ -899,32 +750,14 @@ function renderOrderItems(items: readonly MassOrderItem[]) {
 function renderOrderItem(item: MassOrderItem, index: number) {
   const commonLines = getCommonLines(item);
   const variants = item.variants ?? [];
-  const content = [
-    commonLines.length > 0
-      ? `<div class="dialogue">${commonLines.map(renderDialogueLine).join("")}</div>`
-      : "",
-    variants.length > 0
-      ? [
-          '<div class="variants"><p class="variant-heading">Forms that may be heard</p>',
-          variants
-            .map((variant) => {
-              const defaultLabel =
-                variant.id === item.defaultVariantId
-                  ? '<span class="usual">Usual form</span>'
-                  : "";
-              return [
-                '<div class="variant">',
-                `<h4>${escapeHtml(variant.label)} ${defaultLabel}</h4>`,
-                '<div class="dialogue">',
-                variant.lines.map(renderDialogueLine).join(""),
-                "</div></div>",
-              ].join("");
-            })
-            .join(""),
-          "</div>",
-        ].join("")
-      : "",
-  ].join("");
+  const selectedVariant =
+    variants.find((variant) => variant.id === item.defaultVariantId) ??
+    variants[0] ??
+    null;
+  const dialogueLines = [
+    ...commonLines,
+    ...(selectedVariant?.lines ?? []),
+  ];
 
   return [
     `<div class="order-item" id="item-${escapeAttribute(safeId(item.id))}-${index}">`,
@@ -933,7 +766,11 @@ function renderOrderItem(item: MassOrderItem, index: number) {
       ? `<p class="subgroup">${escapeHtml(item.subgroup)}</p>`
       : "",
     `<h3>${escapeHtml(item.title)}</h3>`,
-    content,
+    dialogueLines.length > 0
+      ? `<div class="dialogue">${dialogueLines
+          .map(renderDialogueLine)
+          .join("")}</div>`
+      : "",
     "</div>",
   ].join("");
 }
@@ -971,107 +808,46 @@ function renderDialogueLine(line: MassDialogueLine) {
   ].join("");
 }
 
-function renderReadings(
-  readingCelebration: HolyMassCelebrationView,
-  requirements: HolyMassCelebrationView["profile"]["requirements"],
-) {
-  const usReadings = renderUsccbReadings(readingCelebration);
-  const douayReadings = renderDouayReadings(readingCelebration, requirements);
+function renderReadings(celebration: HolyMassCelebrationView) {
+  const appointed =
+    celebration.massLectionary ??
+    celebration.readingSets.find((set) => set.sourceKind === "daily")?.item ??
+    celebration.readingSets[0]?.item ??
+    null;
+
+  if (!appointed) {
+    return [
+      '<div class="readings" id="readings">',
+      "<p><strong>Readings unavailable.</strong></p>",
+      "</div>",
+    ].join("");
+  }
+
   return [
     '<div class="readings" id="readings">',
-    '<p class="eyebrow">The Sacred Readings</p>',
-    usReadings,
-    douayReadings,
-    "</div>",
-  ].join("");
-}
-
-function renderUsccbReadings(celebration: HolyMassCelebrationView) {
-  if (celebration.readingSets.length > 0) {
-    return [
-      '<div class="translation" id="us-lectionary">',
-      "<h3>At Mass - U.S. Lectionary</h3>",
-      celebration.readingSets
-        .map((set, index) =>
-          renderUsccbReadingItem(set.item, {
-            description: set.description,
-            id: set.id,
-            label: set.label,
-            lectionaryNumber: set.lectionaryNumber,
-            primary: index === 0,
-          }),
-        )
-        .join(""),
-      "</div>",
-    ].join("");
-  }
-
-  if (celebration.massLectionary) {
-    return [
-      '<div class="translation" id="us-lectionary">',
-      "<h3>At Mass - U.S. Lectionary</h3>",
-      renderUsccbReadingItem(celebration.massLectionary, {
-        id: "daily-lectionary",
-        label: "Daily Lectionary set",
-        primary: true,
-      }),
-      "</div>",
-    ].join("");
-  }
-
-  const officialUrl = getSafeUsccbUrl(celebration.officialReadingsUrl);
-  return [
-    '<div class="translation" id="us-lectionary">',
-    "<h3>At Mass - U.S. Lectionary</h3>",
-    '<p><strong>Readings unavailable.</strong></p>',
-    officialUrl
-      ? `<p><a href="${escapeAttribute(officialUrl)}">Open the official daily readings</a></p>`
-      : "",
-    "</div>",
-  ].join("");
-}
-
-function renderUsccbReadingItem(
-  item: UsccbLectionaryItem,
-  context: {
-    description?: string;
-    id: string;
-    label: string;
-    lectionaryNumber?: number | null;
-    primary: boolean;
-  },
-) {
-  const officialUrl = getSafeUsccbUrl(item.link);
-  return [
-    `<div class="reading-set${context.primary ? " primary-set" : ""}" id="us-set-${escapeAttribute(
-      safeId(context.label),
-    )}">`,
-    `<p class="set-label">${escapeHtml(context.label)}${
-      context.lectionaryNumber
-        ? ` - Lectionary ${context.lectionaryNumber}`
-        : ""
-    }</p>`,
-    `<h4>${escapeHtml(item.title)}</h4>`,
-    context.description
-      ? `<p class="source-note">${escapeHtml(context.description)}</p>`
-      : "",
-    item.sections
-      .map((section, index) => renderUsccbSection(section, index, context.id))
+    '<div class="reading-set primary-set" id="appointed-readings">',
+    appointed.sections
+      .filter(isPrimaryReadingSection)
+      .map((section, index) => renderUsccbSection(section, index))
       .join(""),
-    officialUrl
-      ? `<p><a href="${escapeAttribute(officialUrl)}">Official USCCB readings</a></p>`
-      : "",
+    "</div>",
     "</div>",
   ].join("");
+}
+
+function isPrimaryReadingSection(section: UsccbLectionarySection) {
+  const title = section.title.trim();
+  return (
+    !/^alternate gospel$/iu.test(title) &&
+    !/\s+option\s+\d+$/iu.test(title)
+  );
 }
 
 function renderUsccbSection(
   section: UsccbLectionarySection,
   index: number,
-  setId: string,
 ) {
   const kind = getReadingKind(section.title);
-  const officialUrl = getSafeUsccbUrl(section.officialUrl);
   const primaryReference = section.citation
     .split(",", 1)[0]
     .trim()
@@ -1082,9 +858,9 @@ function renderUsccbSection(
   const closing = renderReadingClosing(kind);
 
   return [
-    `<div class="reading reading-${kind}" id="us-reading-${escapeAttribute(
-      safeId(setId),
-    )}-${escapeAttribute(safeId(section.id))}-${index}">`,
+    `<div class="reading reading-${kind}" id="reading-${escapeAttribute(
+      safeId(section.id),
+    )}-${index}">`,
     `<p class="posture">${escapeHtml(getReadingPosture(kind))}</p>`,
     `<h5>${escapeHtml(section.title)}</h5>`,
     `<p class="citation">${escapeHtml(section.citation)}</p>`,
@@ -1093,142 +869,7 @@ function renderUsccbSection(
     section.lines.map((line) => `<p>${escapeHtml(line)}</p>`).join(""),
     "</div>",
     closing,
-    officialUrl
-      ? `<p class="source-link"><a href="${escapeAttribute(officialUrl)}">USCCB source</a></p>`
-      : "",
     "</div>",
-  ].join("");
-}
-
-function renderDouayReadings(
-  celebration: HolyMassCelebrationView,
-  requirements: HolyMassCelebrationView["profile"]["requirements"],
-) {
-  if (celebration.options.length === 0) {
-    return "";
-  }
-
-  return [
-    '<div class="translation" id="douay-rheims">',
-    "<h3>Douay-Rheims</h3>",
-    celebration.options
-      .map((option, index) =>
-        renderDouayOption(option, requirements, index === 0),
-      )
-      .join(""),
-    "</div>",
-  ].join("");
-}
-
-function renderDouayOption(
-  option: HolyMassLoadedOption,
-  requirements: HolyMassCelebrationView["profile"]["requirements"],
-  primary: boolean,
-) {
-  const officialUrl = getSafeUsccbUrl(option.officialUrl);
-  return [
-    `<div class="reading-set${primary ? " primary-set" : ""}" id="douay-set-${escapeAttribute(
-      safeId(option.id),
-    )}">`,
-    `<p class="set-label">${escapeHtml(option.label)}</p>`,
-    option.description
-      ? `<p class="source-note">${escapeHtml(option.description)}</p>`
-      : "",
-    renderDouaySelection(option.firstReading, "reading"),
-    renderDouayPsalm(option.responsorialPsalm),
-    requirements.secondReading && option.secondReading
-      ? renderDouaySelection(option.secondReading, "reading")
-      : "",
-    requirements.sequence !== "none"
-      ? renderOrderItem(
-          {
-            id: `sequence-${option.id}`,
-            title: "Sequence",
-            posture: "Sit",
-            cue:
-              requirements.sequence === "required"
-                ? "Join the sequence before the Gospel acclamation."
-                : "Join the sequence when it is used.",
-          },
-          0,
-        )
-      : "",
-    renderDouaySelection(option.gospelAcclamation, "acclamation"),
-    option.gospelChoices
-      .map((gospel) => renderDouaySelection(gospel, "gospel"))
-      .join(""),
-    officialUrl
-      ? `<p><a href="${escapeAttribute(officialUrl)}">Official USCCB reading set</a></p>`
-      : "",
-    "</div>",
-  ].join("");
-}
-
-function renderDouaySelection(
-  selection: HolyMassLoadedSelection,
-  kind: Exclude<ReadingKind, "psalm" | "sequence">,
-) {
-  return [
-    `<div class="reading reading-${kind}">`,
-    `<p class="posture">${escapeHtml(getReadingPosture(kind))}</p>`,
-    `<h5>${escapeHtml(selection.title)}</h5>`,
-    `<p class="citation">${escapeHtml(selection.displayCitation)}</p>`,
-    renderReadingOpening(kind, selection.passages[0]?.bookId ?? null),
-    '<div class="reading-text">',
-    selection.segments
-      .map(
-        (segment) =>
-          `<div><p class="segment-reference">${escapeHtml(
-            segment.reference,
-          )}</p>${segment.verses
-            .map(
-              (verse) =>
-                `<p><span class="verse">${escapeHtml(verse.label)}</span> ${escapeHtml(
-                  verse.text,
-                )}</p>`,
-            )
-            .join("")}</div>`,
-      )
-      .join(""),
-    "</div>",
-    renderReadingClosing(kind),
-    "</div>",
-  ].join("");
-}
-
-function renderDouayPsalm(psalm: HolyMassLoadedPsalm) {
-  const refrain = psalm.refrains[0] ?? null;
-  return [
-    '<div class="reading reading-psalm">',
-    '<p class="posture">Sit</p>',
-    "<h5>Responsorial Psalm</h5>",
-    `<p class="citation">${escapeHtml(psalm.displayCitation)}</p>`,
-    refrain
-      ? `<div class="line role-people"><p class="role-label">Response</p><p>${escapeHtml(
-          refrain,
-        )}</p></div>`
-      : "",
-    '<div class="reading-text">',
-    psalm.segments
-      .map(
-        (segment) =>
-          `<div><p class="segment-reference">${escapeHtml(
-            segment.reference,
-          )}</p>${segment.verses
-            .map(
-              (verse) =>
-                `<p><span class="verse">${escapeHtml(verse.label)}</span> ${escapeHtml(
-                  verse.text,
-                )}</p>`,
-            )
-            .join("")}${
-            refrain
-              ? `<p class="refrain"><strong>Response:</strong> ${escapeHtml(refrain)}</p>`
-              : ""
-          }</div>`,
-      )
-      .join(""),
-    "</div></div>",
   ].join("");
 }
 
@@ -1493,27 +1134,7 @@ function buildInternalHref(
   return query ? `${basePath}?${query}` : basePath;
 }
 
-function getSafeUsccbUrl(value: string | null | undefined) {
-  if (!value) {
-    return null;
-  }
 
-  try {
-    const url = new URL(value);
-    const allowedHost =
-      url.hostname === "bible.usccb.org" ||
-      url.hostname === "www.usccb.org" ||
-      url.hostname === "usccb.org";
-    if (url.protocol !== "https:" || !allowedHost) {
-      return null;
-    }
-    url.username = "";
-    url.password = "";
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
 
 function safeId(value: string) {
   return (
@@ -1545,60 +1166,49 @@ function escapeAttribute(value: string) {
 
 const KINDLE_CSS = `
 html { background: #e9e4d7; color: #111111; }
-body { margin: 0; padding: 0; background: #e9e4d7; color: #111111; font-family: Georgia, "Times New Roman", serif; font-size: 20px; line-height: 1.55; }
+body { margin: 0; padding: 0; background: #e9e4d7; color: #111111; font-family: Georgia, "Times New Roman", serif; font-size: 20px; line-height: 1.58; }
 #page { width: 92%; max-width: 46em; margin: 0 auto; background: #ffffff; border-left: 1px solid #777777; border-right: 1px solid #777777; }
 a { color: #111111; text-decoration: underline; }
 a:visited { color: #333333; }
 a:focus, a:hover { color: #ffffff; background: #111111; }
-.skip { display: block; padding: 0.75em 1em; background: #ffffff; border-bottom: 1px solid #777777; }
+.skip { display: block; padding: 0.75em 7%; background: #ffffff; border-bottom: 1px solid #777777; }
 .masthead { padding: 2.2em 7%; color: #ffffff; background: #111111; border-bottom: 6px double #ffffff; }
 .masthead a { color: #ffffff; }
 .masthead a:focus, .masthead a:hover { color: #111111; background: #ffffff; }
-.eyebrow, .posture, .subgroup, .set-label, .role-label, .section-number, .variant-heading { margin: 0 0 0.35em; font-family: Arial, Helvetica, sans-serif; font-size: 0.7em; font-weight: bold; letter-spacing: 0.08em; text-transform: uppercase; }
+.eyebrow, .posture, .subgroup, .role-label, .section-number { margin: 0 0 0.35em; font-family: Arial, Helvetica, sans-serif; font-size: 0.7em; font-weight: bold; letter-spacing: 0.08em; text-transform: uppercase; }
 .masthead h1 { margin: 0.2em 0; font-size: 2.25em; line-height: 1.12; }
-.date, .facts, .mode { margin: 0.7em 0; }
-.current { font-weight: bold; border-bottom: 3px double #ffffff; }
+.date, .facts { margin: 0.7em 0; }
 .action { display: inline-block; padding: 0.65em 0.85em; border: 2px solid #ffffff; font-family: Arial, Helvetica, sans-serif; font-weight: bold; }
-.prepared-copy { margin: 0; padding: 1em 7%; background: #ffffff; border-bottom: 3px double #111111; font-style: italic; }
+.prepared-copy { margin: 0; padding: 0.8em 7%; background: #ffffff; border-bottom: 3px double #111111; font-style: italic; }
 .navigation { padding: 1.25em 7%; background: #f4f1e8; border-bottom: 3px double #111111; }
 .navigation p { margin: 0 0 0.5em; }
 .navigation ol { margin: 0; padding-left: 1.5em; }
 .navigation li { margin: 0.45em 0; }
 .mass-section { padding: 2em 7%; border-bottom: 5px double #111111; }
-.mass-section h2 { margin: 0.15em 0 0.9em; font-size: 1.8em; line-height: 1.18; }
+.mass-section h2 { margin: 0.15em 0 1em; font-size: 1.8em; line-height: 1.18; }
 .section-number { display: inline-block; padding: 0.2em 0.55em; color: #ffffff; background: #111111; }
-.order-item, .reading-set { margin: 1.4em 0; padding: 1em 4%; border: 1px solid #555555; background: #ffffff; page-break-inside: avoid; }
-.order-item h3, .translation h3, .reading-set h4, .reading h5 { margin: 0.2em 0 0.75em; line-height: 1.2; }
+.order-item { margin: 0; padding: 1.4em 0; border-bottom: 1px solid #888888; page-break-inside: avoid; }
+.order-item h3, .reading h5 { margin: 0.2em 0 0.75em; line-height: 1.2; }
 .order-item h3 { font-size: 1.35em; }
-.translation { margin: 1.5em 0; padding-top: 0.8em; border-top: 4px double #111111; }
-.translation h3 { font-size: 1.5em; }
-.reading-set h4 { font-size: 1.3em; }
-.primary-set { border-width: 3px; }
-.source-note, .source-link { font-size: 0.85em; }
-.reading { margin: 1.3em 0; padding: 1em 4%; background: #f8f6f0; border-left: 5px solid #111111; }
-.reading h5 { font-size: 1.2em; }
+.reading-set { margin: 0; padding: 0; }
+.reading { margin: 0; padding: 1.6em 0; border-bottom: 3px double #777777; page-break-inside: avoid; }
+.reading h5 { font-size: 1.25em; }
 .citation, .segment-reference { font-weight: bold; }
 .reading-text { margin: 1em 0; font-size: 1.08em; line-height: 1.65; }
 .reading-text p { margin: 0.85em 0; }
-.verse { font-family: Arial, Helvetica, sans-serif; font-size: 0.72em; font-weight: bold; vertical-align: super; }
-.refrain { padding: 0.7em; border: 1px solid #555555; }
 .dialogue { margin: 0.8em 0; }
 .line { margin: 0.65em 0; padding: 0.75em 4%; border-left: 5px solid #777777; background: #f4f1e8; }
 .line p { margin: 0.25em 0; }
 .role-priest, .role-deacon, .role-minister { color: #ffffff; background: #222222; border-left-color: #999999; }
 .role-people, .role-all { background: #ffffff; border: 2px solid #111111; border-left-width: 7px; font-weight: bold; }
 .role-rubric { background: #eeeeee; border-left-color: #555555; font-style: italic; }
-.variants { margin: 1em 0 0; padding-top: 0.8em; border-top: 1px dashed #555555; }
-.variant { margin: 1em 0; padding: 0.8em 3%; border: 1px dotted #555555; }
-.variant h4 { margin: 0 0 0.6em; font-size: 1.05em; }
-.usual { padding: 0.2em 0.4em; font-family: Arial, Helvetica, sans-serif; font-size: 0.62em; text-transform: uppercase; border: 1px solid #555555; }
 .back { margin-top: 1.8em; text-align: right; }
 .finale { padding: 2em 7%; text-align: center; background: #f4f1e8; }
 .finale p:first-child { font-size: 1.5em; font-style: italic; }
 @media print {
   html, body { background: #ffffff; }
   #page { width: auto; max-width: none; border: 0; }
-  .skip, .action, .mode, .back { display: none; }
+  .skip, .action, .back { display: none; }
   .masthead { color: #111111; background: #ffffff; border-color: #111111; }
   .masthead a { color: #111111; }
   .role-priest, .role-deacon, .role-minister { color: #111111; background: #ffffff; border: 2px solid #111111; border-left-width: 7px; }

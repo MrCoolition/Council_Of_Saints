@@ -75,10 +75,7 @@ const SPECIAL_RITE_EXPECTATIONS = {
     "Procession of the Paschal Candle",
     "Thanks be to God.",
     "Easter Proclamation — Exsultet",
-    "Old Testament Readings and Psalms",
     "Gloria",
-    "Epistle",
-    "Solemn Alleluia and Gospel",
     "Baptismal Liturgy",
     "Litany of the Saints and Blessing of Water",
     "Baptism and Renewal of Baptismal Promises",
@@ -90,8 +87,8 @@ const SPECIAL_RITE_EXPECTATIONS = {
 
 function main() {
   validateWeekdayAndSunday();
-  validateCanonicalDialogueCoverage();
-  validateReadingTranslationsAndAlternatives();
+  validateCanonicalSingleFlow();
+  validateSingleReadingSet();
   validateSaturdayResolution();
   validateHolySaturdayResolution();
   validateOrdinaryRiteVariations();
@@ -102,6 +99,7 @@ function main() {
 
   console.log("Kindle Mass validation passed.");
 }
+
 
 function validateWeekdayAndSunday() {
   const weekday = makePageData({
@@ -118,13 +116,14 @@ function validateWeekdayAndSunday() {
     "Monday of the Eighteenth Week in Ordinary Time",
     "The weekday title must render",
   );
-  assertText(weekdayHtml, "First Reading", "The weekday first reading must render");
+  assertText(weekdayHtml, "Reading 1", "The weekday first reading must render");
   assertText(weekdayHtml, "Responsorial Psalm", "The weekday psalm must render");
   assertText(weekdayHtml, "Gospel", "The weekday Gospel must render");
   assert(
     !documentText(weekdayHtml).includes("SUNDAY SECOND READING SENTINEL"),
     "A weekday must not render a second reading when its profile omits it",
   );
+  assertSingleMass(weekdayHtml, "weekday Mass");
   assertLegacySafe(weekdayHtml, "weekday Mass");
   assertAnchorIntegrity(weekdayHtml, "weekday Mass");
 
@@ -139,19 +138,28 @@ function validateWeekdayAndSunday() {
   });
   const sundayHtml = render(sunday);
   assertText(sundayHtml, "Glory to God in the highest", "Sunday must include the Gloria");
-  assertText(sundayHtml, "Nicene Creed", "Sunday must include the profession of faith");
+  assertText(sundayHtml, "I believe in one God", "Sunday must include the Nicene Creed");
   assertText(
     sundayHtml,
     "SUNDAY SECOND READING SENTINEL",
-    "Sunday must include its second reading",
+    "Sunday must include its appointed second reading",
   );
-  assertText(sundayHtml, "Sprinkling Rite", "Sunday must expose the sprinkling option");
+  assert(
+    !documentText(sundayHtml).includes("Sprinkling Rite"),
+    "The Sunday page must not stack the optional Sprinkling Rite",
+  );
+  assert(
+    !documentText(sundayHtml).includes("Apostles' Creed"),
+    "The Sunday page must not stack a second profession of faith",
+  );
+  assertSingleMass(sundayHtml, "Sunday Mass");
   assertLegacySafe(sundayHtml, "Sunday Mass");
   assertAnchorIntegrity(sundayHtml, "Sunday Mass");
   assertSize(sundayHtml, "Sunday Mass");
 }
 
-function validateCanonicalDialogueCoverage() {
+
+function validateCanonicalSingleFlow() {
   const html = render(
     makePageData({
       daytime: makeCelebration({
@@ -162,82 +170,143 @@ function validateCanonicalDialogueCoverage() {
     }),
   );
 
+  const selectedTexts = new Set<string>();
   for (const section of MASS_ORDER_SECTIONS) {
-    assertText(html, section.title, `Missing canonical section ${section.id}`);
     for (const item of section.items) {
-      assertText(html, item.title, `Missing canonical item ${item.id}`);
-      for (const line of item.lines ?? []) {
-        if (item.id !== "kyrie") {
-          assertText(html, line.text, `Missing base line from ${item.id}`);
+      if (item.id !== "kyrie") {
+        for (const line of item.lines ?? []) {
+          selectedTexts.add(line.text);
         }
       }
-      for (const variant of item.variants ?? []) {
-        assertText(html, variant.label, `Missing variant ${item.id}/${variant.id}`);
-        for (const line of variant.lines) {
-          assertText(
-            html,
-            line.text,
-            `Missing variant line from ${item.id}/${variant.id}`,
-          );
-        }
-      }
-      if (item.cue) {
-        assertText(html, item.cue, `Missing rubric cue from ${item.id}`);
-      }
-      if (item.response) {
-        assertText(html, item.response, `Missing response from ${item.id}`);
+      const selected =
+        item.variants?.find((variant) => variant.id === item.defaultVariantId) ??
+        item.variants?.[0];
+      for (const line of selected?.lines ?? []) {
+        selectedTexts.add(line.text);
       }
     }
   }
 
-  for (const generatedVariant of [
-    "Form A + English Kyrie",
-    "Form A + Greek Kyrie",
-    "Form B + English Kyrie",
-    "Form B + Greek Kyrie",
-    "Form C",
-  ]) {
-    assertText(html, generatedVariant, `Missing generated ${generatedVariant}`);
+  for (const section of MASS_ORDER_SECTIONS) {
+    assertText(html, section.title, `Missing canonical section ${section.id}`);
+    for (const item of section.items) {
+      if (item.id !== "kyrie") {
+        assertText(html, item.title, `Missing canonical item ${item.id}`);
+        for (const line of item.lines ?? []) {
+          assertText(html, line.text, `Missing base line from ${item.id}`);
+        }
+      }
+
+      const selected =
+        item.variants?.find((variant) => variant.id === item.defaultVariantId) ??
+        item.variants?.[0];
+      for (const line of selected?.lines ?? []) {
+        assertText(html, line.text, `Missing selected line from ${item.id}`);
+      }
+
+      for (const variant of item.variants ?? []) {
+        if (variant === selected) {
+          continue;
+        }
+        for (const line of variant.lines) {
+          if (!selectedTexts.has(line.text)) {
+            assert(
+              !documentText(html).includes(normalizeText(line.text)),
+              `Non-selected form leaked into the Mass: ${item.id}/${variant.id}`,
+            );
+          }
+        }
+      }
+    }
   }
-  assertText(html, "Apostles' Creed", "Both Creed variants must be rendered");
+
+  assertText(
+    html,
+    "Penitential Act and Kyrie",
+    "The opening rites should read as one smooth sequence",
+  );
+  assertSingleMass(html, "canonical dialogue flow");
 }
 
-function validateReadingTranslationsAndAlternatives() {
+
+
+function validateSingleReadingSet() {
   const requirements: Requirements = {
     ...SUNDAY_REQUIREMENTS,
     sequence: "required",
   };
-  const html = render(
-    makePageData({
-      daytime: makeCelebration({
-        id: "reading-coverage",
-        localDate: "2026-08-02",
-        requirements,
-      }),
-    }),
-  );
+  const celebration = makeCelebration({
+    id: "reading-coverage",
+    localDate: "2026-08-02",
+    requirements,
+  });
+  const html = render(makePageData({ daytime: celebration }));
+  const text = documentText(html);
 
-  assert(html.includes('id="us-lectionary"'), "The U.S. Lectionary needs a stable anchor");
-  assert(html.includes('id="douay-rheims"'), "The Douay-Rheims text needs a stable anchor");
   for (const expected of [
     "U.S. LECTIONARY FIRST READING SENTINEL",
     "U.S. LECTIONARY PSALM SENTINEL",
-    "U.S. LECTIONARY GOSPEL SENTINEL",
-    "DOUAY FIRST READING SENTINEL",
-    "DOUAY PSALM SENTINEL",
-    "DOUAY GOSPEL SENTINEL",
     "SUNDAY SECOND READING SENTINEL",
-    "Join the sequence before the Gospel acclamation.",
-    "Proper Readings for the Test Saint",
-    "PROPER READING SENTINEL",
-    "ALTERNATE GOSPEL SENTINEL",
+    "U.S. LECTIONARY GOSPEL SENTINEL",
     "R. Test refrain for all the earth.",
   ]) {
-    assertText(html, expected, `Missing reading content: ${expected}`);
+    assertText(html, expected, `Missing appointed daily reading content: ${expected}`);
   }
+  for (const rejected of [
+    "PROPER FIRST READING SENTINEL",
+    "PROPER PSALM SENTINEL",
+    "PROPER SECOND READING SENTINEL",
+    "PROPER GOSPEL SENTINEL",
+    "DOUAY FIRST READING SENTINEL",
+    "DOUAY GOSPEL SENTINEL",
+    "ALTERNATE GOSPEL SENTINEL",
+    "U.S. LECTIONARY ALTERNATE GOSPEL SENTINEL",
+    "U.S. LECTIONARY READING OPTION SENTINEL",
+    "Douay-Rheims",
+  ]) {
+    assert(
+      !text.includes(normalizeText(rejected)),
+      `A second reading set, alternate form, or edition leaked into the Mass: ${rejected}`,
+    );
+  }
+  assert(
+    (html.match(/class="reading-set\b/gu) ?? []).length === 1,
+    "Exactly one appointed reading set must render",
+  );
+  assert(html.includes('id="appointed-readings"'), "The appointed readings need one stable anchor");
 
-  assertLegacySafe(html, "translation and reading alternatives");
-  assertSize(html, "translation and reading alternatives");
+  const withoutPrimary = {
+    ...celebration,
+    id: "reading-daily-set-fallback",
+    massLectionary: null,
+  } satisfies Celebration;
+  const withoutPrimaryHtml = render(makePageData({ daytime: withoutPrimary }));
+  assertText(
+    withoutPrimaryHtml,
+    "U.S. LECTIONARY FIRST READING SENTINEL",
+    "The daily reading set must win even when optional proper sets precede it",
+  );
+  assert(
+    !documentText(withoutPrimaryHtml).includes("PROPER FIRST READING SENTINEL"),
+    "An optional proper set must not replace the daily Mass by array position",
+  );
+
+  const withoutSets = {
+    ...celebration,
+    id: "reading-primary-fallback",
+    readingSets: [],
+  } satisfies Celebration;
+  const withoutSetsHtml = render(makePageData({ daytime: withoutSets }));
+  assertText(
+    withoutSetsHtml,
+    "U.S. LECTIONARY FIRST READING SENTINEL",
+    "The primary daily lectionary must render when no reading sets are supplied",
+  );
+  assertSingleMass(html, "single appointed reading set");
+  assertSingleMass(withoutPrimaryHtml, "single daily reading-set fallback");
+  assertSingleMass(withoutSetsHtml, "single primary reading fallback");
+  assertLegacySafe(html, "single appointed reading set");
+  assertSize(html, "single appointed reading set");
 }
 
 function validateSaturdayResolution() {
@@ -278,14 +347,19 @@ function validateSaturdayResolution() {
   );
   assert(
     resolveKindleMassView(after, DAYTIME).id === daytime.id,
-    "An explicit daytime override must win after the cutoff",
+    "Prepared daytime Masses must stay pinned after the cutoff",
   );
   assert(
     resolveKindleMassView(before, ANTICIPATED).id === anticipated.id,
-    "An explicit anticipated override must win before the cutoff",
+    "Prepared anticipated Masses must stay pinned before the cutoff",
   );
-  assertText(render(after, AUTO), "Anticipated Sunday", "Auto Saturday render is wrong");
-  assertText(render(after, DAYTIME), "Saturday Memorial", "Daytime override render is wrong");
+
+  const beforeHtml = render(before, AUTO);
+  const afterHtml = render(after, AUTO);
+  assertText(beforeHtml, "Saturday Memorial", "Auto Saturday daytime render is wrong");
+  assertText(afterHtml, "Anticipated Sunday", "Auto Saturday evening render is wrong");
+  assertSingleMass(beforeHtml, "Saturday daytime Mass");
+  assertSingleMass(afterHtml, "Saturday anticipated Mass");
 }
 
 function validateHolySaturdayResolution() {
@@ -312,30 +386,28 @@ function validateHolySaturdayResolution() {
   });
   const data = makePageData({
     civilDate: "2026-04-04",
-    civilTime: "23:00",
+    civilTime: "09:00",
     daytime,
     anticipated: vigil,
   });
 
+  for (const form of [AUTO, DAYTIME, ANTICIPATED] as const) {
+    assert(
+      resolveKindleMassView(data, form).id === vigil.id,
+      `Holy Saturday ${form} mode must resolve to its one Mass, the Easter Vigil`,
+    );
+  }
   assert(
-    resolveKindleMassView(data, AUTO).id === daytime.id,
-    "Holy Saturday auto mode must remain in the daytime observance",
-  );
-  assert(
-    resolveKindleMassView(data, ANTICIPATED).id === vigil.id,
-    "The Easter Vigil must require and honor an explicit anticipated choice",
-  );
-  assert(
-    resolveKindleMassView({ ...data, anticipated: null }, ANTICIPATED).id ===
-      daytime.id,
-    "A missing Easter Vigil context must fall back safely to Holy Saturday",
+    resolveKindleMassView({ ...data, anticipated: null }, AUTO).id === daytime.id,
+    "Missing Vigil data must fall back safely instead of crashing",
   );
   assertText(
-    render(data, ANTICIPATED),
+    render(data, AUTO),
     "Easter Vigil in the Holy Night",
-    "The explicit Easter Vigil must render",
+    "Holy Saturday must automatically render the Easter Vigil",
   );
 }
+
 
 function validateOrdinaryRiteVariations() {
   const palmHtml = render(
@@ -354,14 +426,21 @@ function validateOrdinaryRiteVariations() {
       }),
     }),
   );
-  for (const expected of [
+  assertText(
+    palmHtml,
     "Commemoration of the Lord's Entrance",
-    "Procession",
-    "Solemn Entrance",
-    "Simple Entrance",
-    "Hosanna in the highest.",
-  ]) {
-    assertText(palmHtml, expected, `Palm Sunday is missing ${expected}`);
+    "Palm Sunday needs its entrance rite",
+  );
+  assertText(
+    palmHtml,
+    "Gather at the appointed place with palms",
+    "Palm Sunday should follow one procession path",
+  );
+  for (const rejected of ["Solemn Entrance", "Simple Entrance"]) {
+    assert(
+      !documentText(palmHtml).includes(rejected),
+      `Palm Sunday must not stack the unused ${rejected} form`,
+    );
   }
 
   const holyThursdayHtml = render(
@@ -388,9 +467,12 @@ function validateOrdinaryRiteVariations() {
   ]) {
     assertText(holyThursdayHtml, expected, `Holy Thursday is missing ${expected}`);
   }
+  assertSingleMass(palmHtml, "Palm Sunday");
+  assertSingleMass(holyThursdayHtml, "Holy Thursday");
   assertLegacySafe(palmHtml, "Palm Sunday");
   assertLegacySafe(holyThursdayHtml, "Holy Thursday");
 }
+
 
 function validateSpecialRites() {
   const goodFriday = makePageData({
@@ -446,8 +528,8 @@ function validateSpecialRites() {
     KindleMassForm,
   ][] = [
     ["good-friday", "Good Friday", goodFriday, AUTO],
-    ["holy-saturday", "Holy Saturday", holySaturday, AUTO],
-    ["easter-vigil", "Easter Vigil", easterVigil, ANTICIPATED],
+    ["holy-saturday", "Holy Saturday fallback", holySaturday, AUTO],
+    ["easter-vigil", "Easter Vigil", easterVigil, AUTO],
   ];
 
   for (const [kind, label, data, form] of cases) {
@@ -455,6 +537,18 @@ function validateSpecialRites() {
     for (const expected of SPECIAL_RITE_EXPECTATIONS[kind]) {
       assertText(html, expected, `${label} is missing ${expected}`);
     }
+    if (kind === "easter-vigil") {
+      for (const duplicate of [
+        "Old Testament Readings and Psalms",
+        "Solemn Alleluia and Gospel",
+      ]) {
+        assert(
+          !documentText(html).includes(duplicate),
+          `Easter Vigil must not repeat the ${duplicate} placeholder`,
+        );
+      }
+    }
+    assertSingleMass(html, label);
     assertLegacySafe(html, label);
     assertAnchorIntegrity(html, label);
     assertSize(html, label);
@@ -670,6 +764,7 @@ function makeCelebration({
       douayOptionId: proper.id,
     },
   ];
+  readingSets.reverse();
 
   return {
     id,
@@ -742,6 +837,20 @@ function makeLectionaryItem(
       citation: proper ? "John 15:9–12" : "Matthew 5:1–2",
       lines: [proper ? "PROPER GOSPEL SENTINEL" : "U.S. LECTIONARY GOSPEL SENTINEL"],
       officialUrl: "https://bible.usccb.org/bible/test/gospel",
+    },
+    {
+      id: `${proper ? "proper" : "daily"}-alternate-gospel`,
+      title: "Alternate Gospel",
+      citation: "Luke 6:20–21",
+      lines: [`${prefix} ALTERNATE GOSPEL SENTINEL`],
+      officialUrl: "https://bible.usccb.org/bible/test/alternate-gospel",
+    },
+    {
+      id: `${proper ? "proper" : "daily"}-reading-option`,
+      title: "Reading 1 option 2",
+      citation: "Exodus 3:1–2",
+      lines: [`${prefix} READING OPTION SENTINEL`],
+      officialUrl: "https://bible.usccb.org/bible/test/reading-option",
     },
   );
 
@@ -885,6 +994,27 @@ function decodeEntities(value: string) {
     .replace(/&gt;/giu, ">")
     .replace(/&lt;/giu, "<")
     .replace(/&amp;/giu, "&");
+}
+
+
+function assertSingleMass(html: string, label: string) {
+  const text = documentText(html);
+  for (const rejected of [
+    "Forms that may be heard",
+    "Usual form",
+    "Saturday Mass:",
+    "Douay-Rheims",
+  ]) {
+    assert(!text.includes(rejected), `${label} must not contain ${rejected}`);
+  }
+  assert(
+    !/class\s*=\s*["'][^"']*\bvariants?\b/iu.test(html),
+    `${label} must not contain a variant gallery`,
+  );
+  assert(
+    (html.match(/class="reading-set\b/gu) ?? []).length <= 1,
+    `${label} must not contain multiple reading sets`,
+  );
 }
 
 function assertLegacySafe(html: string, label: string) {

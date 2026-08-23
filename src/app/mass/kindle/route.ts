@@ -12,17 +12,21 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
-  const form = parseForm(url.searchParams.get("form"));
+  const requestedForm = parseForm(url.searchParams.get("form"));
   const offlineDate = parseDate(url.searchParams.get("offline"));
 
   try {
     const today = await getTodayPayload(request);
     const data = await getHolyMassPageData(today);
     const prepared =
-      form !== "auto" && offlineDate !== null && offlineDate === data.civilDate;
+      requestedForm !== "auto" &&
+      offlineDate !== null &&
+      offlineDate === data.civilDate;
     const html = renderKindleMassHtml(data, {
       basePath: "/mass/kindle",
-      form,
+      // Public form overrides are ignored. A prepared page may pin the one
+      // celebration already resolved for that date so AppCache can retain it.
+      form: prepared ? requestedForm : "auto",
       preparedDate: prepared ? offlineDate : undefined,
     });
 
