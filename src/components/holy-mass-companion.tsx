@@ -14,6 +14,7 @@ import Link from "next/link";
 import {
   type CSSProperties,
   type ReactNode,
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -22,6 +23,12 @@ import {
   useSyncExternalStore,
 } from "react";
 import { AskFatherKoverman } from "@/components/father-koverman";
+import {
+  MassFollowProvider,
+  type MassFollowTargetRegistration,
+  useMassFollowState,
+  useMassFollowTargets,
+} from "@/components/mass-follow-provider";
 import {
   APOSTLES_CREED_TEXT,
   GLORIA_TEXT,
@@ -32,6 +39,7 @@ import {
   type MassPosture,
 } from "@/lib/mass-order";
 import { MassDialogueOrder } from "@/components/mass-dialogue-order";
+import { splitMassSpeechText } from "@/lib/mass-speech-following";
 import {
   type HolyMassRiteKind,
   resolveSaturdayMassContext,
@@ -471,30 +479,28 @@ export function HolyMassCompanion({
     />
   ) : null;
 
-  if (
+  const experience = (
     celebration.riteKind === "good-friday" ||
     celebration.riteKind === "holy-saturday" ||
     celebration.riteKind === "easter-vigil"
-  ) {
-    return (
+  ) ? (
       <SpecialLiturgyExperience
         celebration={celebration}
-        key={celebration.id}
         saturdayControls={saturdayControls}
       />
-    );
-  }
-
-  return (
+  ) : (
     <MassExperience
       celebration={celebration}
-      key={celebration.id}
       onReadingTranslationChange={(readingTranslation) =>
         saveMassSettings({ ...settings, readingTranslation })
       }
       readingTranslation={settings.readingTranslation}
       saturdayControls={saturdayControls}
     />
+  );
+
+  return (
+    <MassFollowProvider key={celebration.id}>{experience}</MassFollowProvider>
   );
 }
 
@@ -621,7 +627,11 @@ function SpecialLiturgyExperience({
               </a>
             ) : null}
 
-            <OrderItems items={section.items} />
+            <OrderItems
+              followOrderBase={index * 100_000}
+              idPrefix={`special-${section.id}`}
+              items={section.items}
+            />
 
             {riteKind === "holy-saturday" &&
             section.id === "vigil-choice" ? (
@@ -865,6 +875,7 @@ function MassExperience({
           section={massSections[2]}
         >
           <OrderItems
+            followOrderBase={300_000}
             idPrefix="eucharist"
             items={MASS_ORDER_SECTIONS[2].items}
             title="Sacrifice and Sacred Banquet"
@@ -885,6 +896,7 @@ function MassExperience({
           section={massSections[3]}
         >
           <OrderItems
+            followOrderBase={400_000}
             idPrefix="concluding"
             items={
               celebration.riteKind === "holy-thursday"
@@ -1238,6 +1250,7 @@ function IntroductoryRites({
 
   return (
     <OrderItems
+      followOrderBase={0}
       idPrefix="introductory"
       items={ordered}
       title="Gathered in the Name of the Lord"
@@ -1305,6 +1318,62 @@ function LiturgyOfTheWord({
 
   wordRites.push(MASS_ORDER_SECTIONS[1].items[1]);
 
+  const alternateReadingSetTargets = useMemo(
+    () => {
+      if (readingTranslation === "us-lectionary") {
+        return celebration.readingSets.flatMap((candidateSet) => {
+          if (candidateSet.id === readingSet?.id) {
+            return [];
+          }
+
+          const revealSet = () => onReadingSetChange(candidateSet.id);
+          return candidateSet.item.sections.flatMap((section, sectionIndex) =>
+            section.lines.flatMap((line, lineIndex) =>
+              createMassFollowTargets({
+                idPrefix: `usccb-${candidateSet.id}-${section.id}-line-${lineIndex}`,
+                label: `${candidateSet.label} · ${section.title}`,
+                orderBase: 100_000 + sectionIndex * 10_000 + 100 + lineIndex * 100,
+                reveal: revealSet,
+                text: line,
+              }).map((target) => ({
+                ...target,
+                requiresUniqueMatch: true,
+              })),
+            ),
+          );
+        });
+      }
+
+      return celebration.readingSets.flatMap((candidateSet) => {
+        if (candidateSet.id === readingSet?.id || !candidateSet.douayOptionId) {
+          return [];
+        }
+
+        const candidateOption = celebration.options.find(
+          (option) => option.id === candidateSet.douayOptionId,
+        );
+        if (!candidateOption) {
+          return [];
+        }
+
+        return createDouayOptionFollowTargets({
+          followIdPrefix: `douay-${candidateOption.id}`,
+          followOrderBase: 100_000,
+          option: candidateOption,
+          reveal: () => onReadingSetChange(candidateSet.id),
+        });
+      });
+    },
+    [
+      celebration.options,
+      celebration.readingSets,
+      onReadingSetChange,
+      readingSet?.id,
+      readingTranslation,
+    ],
+  );
+  useMassFollowTargets(alternateReadingSetTargets);
+
   return (
     <div className="space-y-8">
       <MassReadingSetSelector
@@ -1321,6 +1390,9 @@ function LiturgyOfTheWord({
       <div hidden={readingTranslation !== "us-lectionary"}>
         {readingSet ? (
           <UsccbMassReadings
+            followEnabled={readingTranslation === "us-lectionary"}
+            followIdPrefix={`usccb-${readingSet.id}`}
+            followOrderBase={100_000}
             item={readingSet.item}
             readingSet={readingSet}
             requirements={celebration.profile.requirements}
@@ -1330,6 +1402,9 @@ function LiturgyOfTheWord({
             readingOption.id === "weekday" ||
             readingOption.id === "appointed") ? (
           <UsccbMassReadings
+            followEnabled={readingTranslation === "us-lectionary"}
+            followIdPrefix={`usccb-${celebration.massLectionary.localDate}`}
+            followOrderBase={100_000}
             item={celebration.massLectionary}
             requirements={celebration.profile.requirements}
           />
@@ -1337,6 +1412,10 @@ function LiturgyOfTheWord({
           <div className="space-y-8">
             <SelectedOfficialReadingSet option={readingOption} />
             <MassReadings
+              followEnabled={readingTranslation === "us-lectionary"}
+              followIdPrefix={`us-fallback-douay-${readingOption.id}`}
+              followOrderBase={100_000}
+              key={`us-fallback-${readingOption.id}`}
               option={readingOption}
               requirements={celebration.profile.requirements}
               returnSource={
@@ -1371,6 +1450,10 @@ function LiturgyOfTheWord({
       <div className="space-y-8" hidden={readingTranslation !== "douay-rheims"}>
         {readingOption ? (
           <MassReadings
+            followEnabled={readingTranslation === "douay-rheims"}
+            followIdPrefix={`douay-${readingOption.id}`}
+            followOrderBase={100_000}
+            key={`douay-${readingOption.id}`}
             option={readingOption}
             requirements={celebration.profile.requirements}
             returnSource={
@@ -1399,6 +1482,7 @@ function LiturgyOfTheWord({
       </div>
 
       <OrderItems
+        followOrderBase={200_000}
         idPrefix="word-response"
         items={wordRites}
         title="Receive, Profess, and Pray"
@@ -1566,10 +1650,16 @@ function SelectedOfficialReadingSet({
 }
 
 function UsccbMassReadings({
+  followEnabled,
+  followIdPrefix,
+  followOrderBase,
   item,
   readingSet,
   requirements,
 }: {
+  followEnabled: boolean;
+  followIdPrefix: string;
+  followOrderBase: number;
   item: NonNullable<HolyMassCelebrationView["massLectionary"]>;
   readingSet?: HolyMassReadingSet;
   requirements: HolyMassCelebrationView["profile"]["requirements"];
@@ -1610,7 +1700,8 @@ function UsccbMassReadings({
             requirements.sequence !== "none" &&
             !hasFeedSequence ? (
               <OrderItems
-                idPrefix="sequence"
+                followOrderBase={followOrderBase + index * 10_000 - 1_000}
+                idPrefix={`${followIdPrefix}-sequence`}
                 items={[{
                   id: "sequence",
                   title: "Sequence",
@@ -1624,6 +1715,9 @@ function UsccbMassReadings({
             ) : null}
             <UsccbReadingCard
               defaultOpen={index === 0}
+              followEnabled={followEnabled}
+              followIdPrefix={`${followIdPrefix}-${section.id}`}
+              followOrderBase={followOrderBase + index * 10_000}
               kind={kind}
               section={section}
             />
@@ -1659,16 +1753,23 @@ type UsccbSectionKind =
 
 function UsccbReadingCard({
   defaultOpen,
+  followEnabled,
+  followIdPrefix,
+  followOrderBase,
   kind,
   section,
 }: {
   defaultOpen: boolean;
+  followEnabled: boolean;
+  followIdPrefix: string;
+  followOrderBase: number;
   kind: UsccbSectionKind;
   section: UsccbLectionarySection;
 }) {
   const disclosureId = useId();
   const [open, setOpen] = useState(defaultOpen);
   const disclosureButtonRef = useRef<HTMLButtonElement>(null);
+  const revealReading = useCallback(() => setOpen(true), []);
   const primaryReference = section.citation
     .split(",", 1)[0]
     .trim()
@@ -1728,13 +1829,45 @@ function UsccbReadingCard({
         {kind === "gospel" ? (
           <div className="mb-8 space-y-3">
             <MinisterLine label="Deacon or Priest">
-              The Lord be with you.
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-gospel-greeting-priest`}
+                label={section.title}
+                orderBase={followOrderBase}
+                reveal={revealReading}
+                text="The Lord be with you."
+              />
             </MinisterLine>
-            <PeopleResponse label="People">And with your spirit.</PeopleResponse>
+            <PeopleResponse label="People">
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-gospel-greeting-people`}
+                label={section.title}
+                orderBase={followOrderBase + 10}
+                reveal={revealReading}
+                text="And with your spirit."
+              />
+            </PeopleResponse>
             <MinisterLine label="Deacon or Priest">
-              A reading from the holy Gospel according to {gospelBook}.
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-gospel-introduction`}
+                label={section.title}
+                orderBase={followOrderBase + 20}
+                reveal={revealReading}
+                text={`A reading from the holy Gospel according to ${gospelBook}.`}
+              />
             </MinisterLine>
-            <PeopleResponse label="People">Glory to you, O Lord.</PeopleResponse>
+            <PeopleResponse label="People">
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-gospel-acclamation`}
+                label={section.title}
+                orderBase={followOrderBase + 30}
+                reveal={revealReading}
+                text="Glory to you, O Lord."
+              />
+            </PeopleResponse>
             <p className="rounded-xl border border-[color:var(--oxblood)]/20 bg-[var(--panel-soft)] px-4 py-3 font-serif text-sm italic leading-6 text-[var(--oxblood)]">
               Trace the Cross on your forehead, lips, and heart.
             </p>
@@ -1743,7 +1876,16 @@ function UsccbReadingCard({
 
         {kind === "reading" && readingIntroduction ? (
           <div className="mb-8">
-            <MinisterLine label="Reader">{readingIntroduction}</MinisterLine>
+            <MinisterLine label="Reader">
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-introduction`}
+                label={section.title}
+                orderBase={followOrderBase}
+                reveal={revealReading}
+                text={readingIntroduction}
+              />
+            </MinisterLine>
           </div>
         ) : null}
 
@@ -1759,7 +1901,14 @@ function UsccbReadingCard({
               }
               key={`${section.id}:${index}`}
             >
-              {line}
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-line-${index}`}
+                label={section.title}
+                orderBase={followOrderBase + 100 + index * 100}
+                reveal={revealReading}
+                text={line}
+              />
             </p>
           ))}
         </div>
@@ -1767,9 +1916,29 @@ function UsccbReadingCard({
         {after ? (
           <div className="mt-8 space-y-3">
             <MinisterLine label={kind === "gospel" ? "Deacon or Priest" : "Reader"}>
-              {kind === "gospel" ? "The Gospel of the Lord." : "The word of the Lord."}
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-conclusion-minister`}
+                label={section.title}
+                orderBase={followOrderBase + 9_000}
+                reveal={revealReading}
+                text={
+                  kind === "gospel"
+                    ? "The Gospel of the Lord."
+                    : "The word of the Lord."
+                }
+              />
             </MinisterLine>
-            <PeopleResponse label="People">{after}</PeopleResponse>
+            <PeopleResponse label="People">
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-conclusion-people`}
+                label={section.title}
+                orderBase={followOrderBase + 9_010}
+                reveal={revealReading}
+                text={after}
+              />
+            </PeopleResponse>
           </div>
         ) : null}
 
@@ -1821,32 +1990,94 @@ function getUsccbSectionKind(section: UsccbLectionarySection): UsccbSectionKind 
 }
 
 function MassReadings({
+  followEnabled,
+  followIdPrefix,
+  followOrderBase,
   option,
   requirements,
   returnSource,
 }: {
+  followEnabled: boolean;
+  followIdPrefix: string;
+  followOrderBase: number;
   option: HolyMassLoadedOption;
   requirements: HolyMassCelebrationView["profile"]["requirements"];
   returnSource: ScriptureReturnSource;
 }) {
-  const [gospelIndex, setGospelIndex] = useState(0);
+  const { activeTargetId } = useMassFollowState();
+  const [gospelIndex, setGospelIndex] = useState(() => {
+    const matchedIndex = option.gospelChoices.findIndex((_, choiceIndex) =>
+      activeTargetId?.startsWith(
+        `${getMassFollowTargetIdPrefix(`${followIdPrefix}-gospel-${choiceIndex}`)}-`,
+      ),
+    );
+    return matchedIndex >= 0 ? matchedIndex : 0;
+  });
   const gospel = option.gospelChoices[gospelIndex] ?? option.gospelChoices[0];
+  const alternateGospelTargets = useMemo(
+    () =>
+      option.gospelChoices.flatMap((choice, choiceIndex) => {
+        if (!followEnabled || choiceIndex === gospelIndex) {
+          return [];
+        }
+
+        const revealGospel = () => setGospelIndex(choiceIndex);
+        return choice.segments.flatMap((segment, segmentIndex) =>
+          segment.verses.flatMap((verse, verseIndex) =>
+            createMassFollowTargets({
+              idPrefix: `${followIdPrefix}-gospel-${choiceIndex}-segment-${segmentIndex}-verse-${verse.number}`,
+              label: choice.title,
+              orderBase:
+                followOrderBase +
+                80_000 +
+                100 +
+                segmentIndex * 5_000 +
+                verseIndex * 100,
+              reveal: revealGospel,
+              text: verse.text,
+            }).map((target) => ({
+              ...target,
+              requiresUniqueMatch: true,
+            })),
+          ),
+        );
+      }),
+    [
+      followEnabled,
+      followIdPrefix,
+      followOrderBase,
+      gospelIndex,
+      option.gospelChoices,
+    ],
+  );
+  useMassFollowTargets(alternateGospelTargets);
 
   return (
     <div className="space-y-8">
       <ReadingCard
         after="Thanks be to God."
+        followEnabled={followEnabled}
+        followIdPrefix={`${followIdPrefix}-first-reading`}
+        followOrderBase={followOrderBase}
         kind="reading"
         posture="Sit"
         returnSource={returnSource}
         selection={option.firstReading}
       />
 
-      <PsalmCard psalm={option.responsorialPsalm} />
+      <PsalmCard
+        followEnabled={followEnabled}
+        followIdPrefix={`${followIdPrefix}-psalm`}
+        followOrderBase={followOrderBase + 20_000}
+        psalm={option.responsorialPsalm}
+      />
 
       {requirements.secondReading && option.secondReading ? (
         <ReadingCard
           after="Thanks be to God."
+          followEnabled={followEnabled}
+          followIdPrefix={`${followIdPrefix}-second-reading`}
+          followOrderBase={followOrderBase + 40_000}
           kind="reading"
           posture="Sit"
           returnSource={returnSource}
@@ -1856,7 +2087,8 @@ function MassReadings({
 
       {requirements.sequence !== "none" ? (
         <OrderItems
-          idPrefix="sequence"
+          followOrderBase={followOrderBase + 60_000}
+          idPrefix={`${followIdPrefix}-sequence`}
           items={[{
             id: "sequence",
             title: "Sequence",
@@ -1871,6 +2103,9 @@ function MassReadings({
 
       <ReadingCard
         compact
+        followEnabled={followEnabled}
+        followIdPrefix={`${followIdPrefix}-acclamation`}
+        followOrderBase={followOrderBase + 70_000}
         kind="acclamation"
         posture="Stand"
         returnSource={returnSource}
@@ -1911,6 +2146,9 @@ function MassReadings({
       {gospel ? (
         <ReadingCard
           after="Praise to you, Lord Jesus Christ."
+          followEnabled={followEnabled}
+          followIdPrefix={`${followIdPrefix}-gospel-${gospelIndex}`}
+          followOrderBase={followOrderBase + 80_000}
           kind="gospel"
           posture="Stand"
           returnSource={returnSource}
@@ -1924,6 +2162,9 @@ function MassReadings({
 function ReadingCard({
   after,
   compact = false,
+  followEnabled,
+  followIdPrefix,
+  followOrderBase,
   kind,
   posture,
   returnSource,
@@ -1931,6 +2172,9 @@ function ReadingCard({
 }: {
   after?: string;
   compact?: boolean;
+  followEnabled: boolean;
+  followIdPrefix: string;
+  followOrderBase: number;
   kind: "reading" | "acclamation" | "gospel";
   posture: MassPosture;
   returnSource: ScriptureReturnSource;
@@ -1942,6 +2186,7 @@ function ReadingCard({
   const disclosureId = useId();
   const [open, setOpen] = useState(selection.title === "First Reading");
   const disclosureButtonRef = useRef<HTMLButtonElement>(null);
+  const revealReading = useCallback(() => setOpen(true), []);
 
   return (
     <article className="illuminated-panel overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--panel)] shadow-[0_18px_56px_rgba(11,28,22,0.055)]">
@@ -1985,13 +2230,45 @@ function ReadingCard({
         {kind === "gospel" ? (
           <div className="mb-8 space-y-3">
             <MinisterLine label="Deacon or Priest">
-              The Lord be with you.
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-gospel-greeting-priest`}
+                label={selection.title}
+                orderBase={followOrderBase}
+                reveal={revealReading}
+                text="The Lord be with you."
+              />
             </MinisterLine>
-            <PeopleResponse label="People">And with your spirit.</PeopleResponse>
+            <PeopleResponse label="People">
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-gospel-greeting-people`}
+                label={selection.title}
+                orderBase={followOrderBase + 10}
+                reveal={revealReading}
+                text="And with your spirit."
+              />
+            </PeopleResponse>
             <MinisterLine label="Deacon or Priest">
-              A reading from the holy Gospel according to {gospelBook}.
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-gospel-introduction`}
+                label={selection.title}
+                orderBase={followOrderBase + 20}
+                reveal={revealReading}
+                text={`A reading from the holy Gospel according to ${gospelBook}.`}
+              />
             </MinisterLine>
-            <PeopleResponse label="People">Glory to you, O Lord.</PeopleResponse>
+            <PeopleResponse label="People">
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-gospel-acclamation`}
+                label={selection.title}
+                orderBase={followOrderBase + 30}
+                reveal={revealReading}
+                text="Glory to you, O Lord."
+              />
+            </PeopleResponse>
             <p className="rounded-xl border border-[color:var(--oxblood)]/20 bg-[var(--panel-soft)] px-4 py-3 font-serif text-sm italic leading-6 text-[var(--oxblood)]">
               Trace the Cross on your forehead, lips, and heart.
             </p>
@@ -2000,7 +2277,16 @@ function ReadingCard({
 
         {kind === "reading" && readingIntroduction ? (
           <div className="mb-8">
-            <MinisterLine label="Reader">{readingIntroduction}</MinisterLine>
+            <MinisterLine label="Reader">
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-introduction`}
+                label={selection.title}
+                orderBase={followOrderBase}
+                reveal={revealReading}
+                text={readingIntroduction}
+              />
+            </MinisterLine>
           </div>
         ) : null}
 
@@ -2020,10 +2306,22 @@ function ReadingCard({
                   compact ? "italic" : "",
                 ].join(" ")}
               >
-                {segment.verses.map((verse) => (
+                {segment.verses.map((verse, verseIndex) => (
                   <p key={`${segment.reference}:${verse.number}`}>
                     <span className="sr-only">Verse {verse.label}. </span>
-                    {verse.text}
+                    <MassFollowText
+                      enabled={followEnabled}
+                      idPrefix={`${followIdPrefix}-segment-${segmentIndex}-verse-${verse.number}`}
+                      label={selection.title}
+                      orderBase={
+                        followOrderBase +
+                        100 +
+                        segmentIndex * 5_000 +
+                        verseIndex * 100
+                      }
+                      reveal={revealReading}
+                      text={verse.text}
+                    />
                   </p>
                 ))}
               </div>
@@ -2034,9 +2332,29 @@ function ReadingCard({
         {after ? (
           <div className="mt-8 space-y-3">
             <MinisterLine label={kind === "gospel" ? "Deacon or Priest" : "Reader"}>
-              {kind === "gospel" ? "The Gospel of the Lord." : "The word of the Lord."}
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-conclusion-minister`}
+                label={selection.title}
+                orderBase={followOrderBase + 19_000}
+                reveal={revealReading}
+                text={
+                  kind === "gospel"
+                    ? "The Gospel of the Lord."
+                    : "The word of the Lord."
+                }
+              />
             </MinisterLine>
-            <PeopleResponse label="People">{after}</PeopleResponse>
+            <PeopleResponse label="People">
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-conclusion-people`}
+                label={selection.title}
+                orderBase={followOrderBase + 19_010}
+                reveal={revealReading}
+                text={after}
+              />
+            </PeopleResponse>
           </div>
         ) : null}
 
@@ -2065,11 +2383,22 @@ function ReadingCard({
   );
 }
 
-function PsalmCard({ psalm }: { psalm: HolyMassLoadedPsalm }) {
+function PsalmCard({
+  followEnabled,
+  followIdPrefix,
+  followOrderBase,
+  psalm,
+}: {
+  followEnabled: boolean;
+  followIdPrefix: string;
+  followOrderBase: number;
+  psalm: HolyMassLoadedPsalm;
+}) {
   const refrain = psalm.refrains[0] ?? null;
   const disclosureId = useId();
   const [open, setOpen] = useState(false);
   const disclosureButtonRef = useRef<HTMLButtonElement>(null);
+  const revealReading = useCallback(() => setOpen(true), []);
 
   return (
     <article className="illuminated-panel overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--panel)] shadow-[0_18px_56px_rgba(11,28,22,0.055)]">
@@ -2116,7 +2445,14 @@ function PsalmCard({ psalm }: { psalm: HolyMassLoadedPsalm }) {
             </p>
             <blockquote className="mt-2 font-serif text-xl font-semibold italic leading-8 text-[var(--foreground)] sm:text-2xl sm:leading-9">
               <span className="mr-2 text-[color:var(--liturgical-accent)]">R.</span>
-              {refrain}
+              <MassFollowText
+                enabled={followEnabled}
+                idPrefix={`${followIdPrefix}-refrain-opening`}
+                label="Responsorial Psalm"
+                orderBase={followOrderBase}
+                reveal={revealReading}
+                text={refrain}
+              />
             </blockquote>
           </div>
         ) : null}
@@ -2130,15 +2466,37 @@ function PsalmCard({ psalm }: { psalm: HolyMassLoadedPsalm }) {
               className="space-y-4 font-serif text-[1.08rem] leading-8 text-[var(--foreground)] sm:text-xl sm:leading-9"
               key={`${segment.reference}:${segmentIndex}`}
             >
-              {segment.verses.map((verse) => (
+              {segment.verses.map((verse, verseIndex) => (
                 <p key={`${segment.reference}:${verse.number}`}>
                   <span className="sr-only">Verse {verse.label}. </span>
-                  {verse.text}
+                  <MassFollowText
+                    enabled={followEnabled}
+                    idPrefix={`${followIdPrefix}-segment-${segmentIndex}-verse-${verse.number}`}
+                    label="Responsorial Psalm"
+                    orderBase={
+                      followOrderBase +
+                      100 +
+                      segmentIndex * 5_000 +
+                      verseIndex * 100
+                    }
+                    reveal={revealReading}
+                    text={verse.text}
+                  />
                 </p>
               ))}
               {refrain ? (
                 <p className="font-semibold italic text-[color:var(--liturgical-accent)]">
-                  R. {refrain}
+                  <span className="mr-2">R.</span>
+                  <MassFollowText
+                    enabled={followEnabled}
+                    idPrefix={`${followIdPrefix}-segment-${segmentIndex}-refrain`}
+                    label="Responsorial Psalm"
+                    orderBase={
+                      followOrderBase + segmentIndex * 5_000 + 4_900
+                    }
+                    reveal={revealReading}
+                    text={refrain}
+                  />
                 </p>
               ) : null}
             </div>
@@ -2196,16 +2554,207 @@ function collapseReadingAndReturn(
   });
 }
 
+function MassFollowText({
+  enabled = true,
+  idPrefix,
+  label,
+  orderBase,
+  reveal,
+  text,
+}: {
+  enabled?: boolean;
+  idPrefix: string;
+  label: string;
+  orderBase: number;
+  reveal?: () => void;
+  text: string;
+}) {
+  const targets = useMemo(
+    () =>
+      createMassFollowTargets({
+        enabled,
+        idPrefix,
+        label,
+        orderBase,
+        reveal,
+        text,
+      }),
+    [enabled, idPrefix, label, orderBase, reveal, text],
+  );
+  useMassFollowTargets(targets);
+  const { activeTargetId } = useMassFollowState();
+
+  return (
+    <>
+      {targets.map((target) => {
+        const active = target.id === activeTargetId;
+        return (
+          <span
+            aria-current={active ? "true" : undefined}
+            className={
+              active
+                ? "scroll-mt-40 rounded-md bg-[color:var(--gilt)]/25 px-1 ring-2 ring-[color:var(--gilt)]/55 ring-offset-2 ring-offset-[var(--panel)] transition-colors"
+                : "scroll-mt-40 transition-colors"
+            }
+            data-mass-follow-target={target.id}
+            id={target.elementId}
+            key={target.id}
+          >
+            {target.text}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+function createMassFollowTargets({
+  enabled = true,
+  idPrefix,
+  label,
+  orderBase,
+  reveal,
+  text,
+}: {
+  enabled?: boolean;
+  idPrefix: string;
+  label: string;
+  orderBase: number;
+  reveal?: () => void;
+  text: string;
+}): MassFollowTargetRegistration[] {
+  return splitMassSpeechText(text).map((chunk, index) => {
+    const id = getMassFollowTargetId(idPrefix, index);
+    return {
+      elementId: id,
+      enabled,
+      id,
+      label,
+      order: orderBase + index,
+      reveal,
+      text: chunk,
+    };
+  });
+}
+
+function createDouayOptionFollowTargets({
+  followIdPrefix,
+  followOrderBase,
+  option,
+  reveal,
+}: {
+  followIdPrefix: string;
+  followOrderBase: number;
+  option: HolyMassLoadedOption;
+  reveal: () => void;
+}) {
+  const selectionTargets = (
+    selection: HolyMassLoadedSelection,
+    idPrefix: string,
+    orderBase: number,
+  ) =>
+    selection.segments.flatMap((segment, segmentIndex) =>
+      segment.verses.flatMap((verse, verseIndex) =>
+        createMassFollowTargets({
+          idPrefix: `${idPrefix}-segment-${segmentIndex}-verse-${verse.number}`,
+          label: selection.title,
+          orderBase: orderBase + 100 + segmentIndex * 5_000 + verseIndex * 100,
+          reveal,
+          text: verse.text,
+        }).map((target) => ({
+          ...target,
+          requiresUniqueMatch: true,
+        })),
+      ),
+    );
+
+  const targets: MassFollowTargetRegistration[] = [
+    ...selectionTargets(
+      option.firstReading,
+      `${followIdPrefix}-first-reading`,
+      followOrderBase,
+    ),
+    ...option.responsorialPsalm.segments.flatMap((segment, segmentIndex) =>
+      segment.verses.flatMap((verse, verseIndex) =>
+        createMassFollowTargets({
+          idPrefix: `${followIdPrefix}-psalm-segment-${segmentIndex}-verse-${verse.number}`,
+          label: "Responsorial Psalm",
+          orderBase:
+            followOrderBase +
+            20_000 +
+            100 +
+            segmentIndex * 5_000 +
+            verseIndex * 100,
+          reveal,
+          text: verse.text,
+        }).map((target) => ({
+          ...target,
+          requiresUniqueMatch: true,
+        })),
+      ),
+    ),
+  ];
+
+  if (option.secondReading) {
+    targets.push(
+      ...selectionTargets(
+        option.secondReading,
+        `${followIdPrefix}-second-reading`,
+        followOrderBase + 40_000,
+      ),
+    );
+  }
+
+  targets.push(
+    ...selectionTargets(
+      option.gospelAcclamation,
+      `${followIdPrefix}-acclamation`,
+      followOrderBase + 70_000,
+    ),
+    ...option.gospelChoices.flatMap((gospel, gospelIndex) =>
+      selectionTargets(
+        gospel,
+        `${followIdPrefix}-gospel-${gospelIndex}`,
+        followOrderBase + 80_000,
+      ),
+    ),
+  );
+
+  return targets;
+}
+
+function getMassFollowTargetId(idPrefix: string, chunkIndex: number) {
+  return `${getMassFollowTargetIdPrefix(idPrefix)}-${chunkIndex}`;
+}
+
+function getMassFollowTargetIdPrefix(idPrefix: string) {
+  const normalizedPrefix =
+    idPrefix
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/gu, "-")
+      .replace(/^-+|-+$/gu, "") || "mass";
+  return `mass-follow-${normalizedPrefix}`;
+}
+
 function OrderItems({
+  followOrderBase,
   idPrefix,
   items,
   title,
 }: {
+  followOrderBase?: number;
   idPrefix?: string;
   items: readonly MassOrderItem[];
   title?: string;
 }) {
-  return <MassDialogueOrder idPrefix={idPrefix} items={items} title={title} />;
+  return (
+    <MassDialogueOrder
+      followOrderBase={followOrderBase}
+      idPrefix={idPrefix}
+      items={items}
+      title={title}
+    />
+  );
 }
 
 function PeopleResponse({

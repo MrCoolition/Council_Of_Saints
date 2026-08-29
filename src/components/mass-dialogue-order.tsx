@@ -10,13 +10,19 @@ import {
   Music2,
   Users,
 } from "lucide-react";
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
+import {
+  type MassFollowTargetRegistration,
+  useMassFollowState,
+  useMassFollowTargets,
+} from "@/components/mass-follow-provider";
 import type {
   MassDialogueLine,
   MassDialogueRole,
   MassDialogueVariant,
   MassOrderItem,
 } from "@/lib/mass-order";
+import { splitMassSpeechText } from "@/lib/mass-speech-following";
 
 const ROLE_LABELS: Record<MassDialogueRole, string> = {
   priest: "Priest",
@@ -40,10 +46,12 @@ const SPOKEN_ROLES: readonly MassDialogueRole[] = [
 ];
 
 export function MassDialogueOrder({
+  followOrderBase = 0,
   items,
   idPrefix = "mass-dialogue",
   title,
 }: {
+  followOrderBase?: number;
   items: readonly MassOrderItem[];
   idPrefix?: string;
   title?: string;
@@ -75,6 +83,42 @@ export function MassDialogueOrder({
       }),
     ),
   );
+  const { activeTargetId } = useMassFollowState();
+  const followTargets = useMemo(
+    () =>
+      buildMassFollowTargets({
+        followOrderBase,
+        idPrefix,
+        items: dialogueItems,
+        revealItem: (itemKey, variantId) => {
+          setOpenItems((current) => {
+            if (current.has(itemKey)) {
+              return current;
+            }
+
+            const next = new Set(current);
+            next.add(itemKey);
+            return next;
+          });
+
+          if (variantId) {
+            setSelectedVariants((current) =>
+              current[itemKey] === variantId
+                ? current
+                : { ...current, [itemKey]: variantId },
+            );
+          }
+        },
+      }),
+    [
+      dialogueItems,
+      followOrderBase,
+      idPrefix,
+      setOpenItems,
+      setSelectedVariants,
+    ],
+  );
+  useMassFollowTargets(followTargets);
   const allOpen =
     expandableKeys.length > 0 &&
     expandableKeys.every((key) => openItems.has(key));
@@ -157,7 +201,8 @@ export function MassDialogueOrder({
             item,
             selectedVariants[key],
           );
-          const lines = getRenderedLines(item, selectedVariant);
+          const renderedLines = getRenderedLineEntries(item, selectedVariant);
+          const lines = renderedLines.map((entry) => entry.line);
           const roles = getSpokenRoles(lines);
           const StaticHeading = title ? "h4" : "h3";
 
@@ -233,9 +278,17 @@ export function MassDialogueOrder({
                     ) : null}
 
                     <div className="relative space-y-3 before:absolute before:bottom-5 before:left-5 before:top-5 before:w-px before:bg-[var(--line)] sm:before:left-6">
-                      {lines.map((line, lineIndex) => (
+                      {renderedLines.map(({ line, lineIndex, variantId }) => (
                         <DialogueBlock
-                          key={`${line.role}:${line.label ?? ""}:${lineIndex}`}
+                          activeTargetId={activeTargetId}
+                          follow={{
+                            idPrefix,
+                            itemId: item.id,
+                            itemIndex: index,
+                            lineIndex,
+                            variantId,
+                          }}
+                          key={`${variantId ?? "base"}:${line.role}:${line.label ?? ""}:${lineIndex}`}
                           line={line}
                         />
                       ))}
@@ -345,7 +398,23 @@ function VariantChooser({
   );
 }
 
-function DialogueBlock({ line }: { line: MassDialogueLine }) {
+type DialogueFollowMetadata = {
+  idPrefix: string;
+  itemId: string;
+  itemIndex: number;
+  lineIndex: number;
+  variantId: string | null;
+};
+
+function DialogueBlock({
+  activeTargetId,
+  follow,
+  line,
+}: {
+  activeTargetId: string | null;
+  follow: DialogueFollowMetadata;
+  line: MassDialogueLine;
+}) {
   if (line.role === "rubric") {
     return (
       <div className="relative z-10 ml-0 rounded-2xl border border-[color:var(--oxblood)]/20 bg-[var(--panel-soft)] px-5 py-4 sm:ml-4 sm:px-6">
@@ -372,6 +441,7 @@ function DialogueBlock({ line }: { line: MassDialogueLine }) {
     line.role === "people" || line.role === "all"
       ? "text-xl font-semibold leading-8 sm:text-2xl sm:leading-9"
       : "text-lg leading-8 sm:text-xl sm:leading-9";
+  const chunks = splitMassSpeechText(line.text);
 
   return (
     <div className={`relative z-10 rounded-2xl border px-5 py-5 sm:px-7 sm:py-6 ${roleClass}`}>
@@ -386,7 +456,30 @@ function DialogueBlock({ line }: { line: MassDialogueLine }) {
           ) : null}
         </p>
       </div>
-      <p className={`mt-3 font-serif ${textClass}`}>{line.text}</p>
+      <p className={`mt-3 font-serif ${textClass}`}>
+        {chunks.map((chunk, chunkIndex) => {
+          const targetId = getFollowTargetId({
+            ...follow,
+            chunkIndex,
+          });
+          const active = targetId === activeTargetId;
+
+          return (
+            <span
+              className={
+                active
+                  ? "rounded-sm bg-[color:var(--gilt)]/30 motion-safe:transition-colors"
+                  : "rounded-sm motion-safe:transition-colors"
+              }
+              data-mass-follow-target={targetId}
+              id={targetId}
+              key={targetId}
+            >
+              {chunk}
+            </span>
+          );
+        })}
+      </p>
     </div>
   );
 }
@@ -518,6 +611,177 @@ function getRenderedLines(
         ]
       : []),
   ];
+}
+
+type RenderedDialogueLine = {
+  line: MassDialogueLine;
+  lineIndex: number;
+  variantId: string | null;
+};
+
+function getRenderedLineEntries(
+  item: MassOrderItem,
+  selectedVariant: MassDialogueVariant | null,
+): readonly RenderedDialogueLine[] {
+  const baseLines = item.lines ?? [];
+  const variantLines = selectedVariant?.lines ?? [];
+  const rendered = [
+    ...baseLines.map((line, lineIndex) => ({
+      line,
+      lineIndex,
+      variantId: null,
+    })),
+    ...variantLines.map((line, variantLineIndex) => ({
+      line,
+      lineIndex: baseLines.length + variantLineIndex,
+      variantId: selectedVariant?.id ?? null,
+    })),
+  ];
+
+  if (rendered.length > 0) {
+    return rendered;
+  }
+
+  return getFallbackLines(item).map((line, lineIndex) => ({
+    line,
+    lineIndex,
+    variantId: null,
+  }));
+}
+
+function buildMassFollowTargets({
+  followOrderBase,
+  idPrefix,
+  items,
+  revealItem,
+}: {
+  followOrderBase: number;
+  idPrefix: string;
+  items: readonly MassOrderItem[];
+  revealItem: (itemKey: string, variantId: string | null) => void;
+}): MassFollowTargetRegistration[] {
+  return items.flatMap((item, itemIndex) => {
+    const itemKey = getItemKey(item, itemIndex);
+    const baseLines =
+      item.lines && item.lines.length > 0
+        ? item.lines
+        : getFallbackLines(item);
+    const baseTargets = buildLineTargets({
+      followOrderBase,
+      idPrefix,
+      item,
+      itemIndex,
+      lines: baseLines,
+      lineOffset: 0,
+      reveal: () => revealItem(itemKey, null),
+      variant: null,
+    });
+    const variantTargets = (item.variants ?? []).flatMap((variant) =>
+      buildLineTargets({
+        followOrderBase,
+        idPrefix,
+        item,
+        itemIndex,
+        lines: variant.lines,
+        lineOffset: item.lines?.length ?? 0,
+        reveal: () => revealItem(itemKey, variant.id),
+        variant,
+      }),
+    );
+
+    return [...baseTargets, ...variantTargets];
+  });
+}
+
+function buildLineTargets({
+  followOrderBase,
+  idPrefix,
+  item,
+  itemIndex,
+  lines,
+  lineOffset,
+  reveal,
+  variant,
+}: {
+  followOrderBase: number;
+  idPrefix: string;
+  item: MassOrderItem;
+  itemIndex: number;
+  lines: readonly MassDialogueLine[];
+  lineOffset: number;
+  reveal: () => void;
+  variant: MassDialogueVariant | null;
+}): MassFollowTargetRegistration[] {
+  return lines.flatMap((line, sourceLineIndex) => {
+    if (line.role === "rubric") {
+      return [];
+    }
+
+    const lineIndex = lineOffset + sourceLineIndex;
+    return splitMassSpeechText(line.text).map((text, chunkIndex) => {
+      const id = getFollowTargetId({
+        chunkIndex,
+        idPrefix,
+        itemId: item.id,
+        itemIndex,
+        lineIndex,
+        variantId: variant?.id ?? null,
+      });
+
+      return {
+        elementId: id,
+        id,
+        label: [
+          item.title,
+          variant?.label,
+          line.label ?? ROLE_LABELS[line.role],
+        ].filter(Boolean).join(" · "),
+        order:
+          followOrderBase +
+          itemIndex * 1_000 +
+          lineIndex * 100 +
+          chunkIndex,
+        requiresUniqueMatch: variant !== null,
+        reveal,
+        text,
+      };
+    });
+  });
+}
+
+function getFallbackLines(item: MassOrderItem): readonly MassDialogueLine[] {
+  return [
+    ...(item.cue
+      ? [{ role: "rubric" as const, text: item.cue }]
+      : []),
+    ...(item.response
+      ? [
+          {
+            role: "people" as const,
+            text: item.response,
+            label: item.responseLabel,
+          },
+        ]
+      : []),
+  ];
+}
+
+function getFollowTargetId({
+  chunkIndex,
+  idPrefix,
+  itemId,
+  itemIndex,
+  lineIndex,
+  variantId,
+}: DialogueFollowMetadata & { chunkIndex: number }) {
+  return [
+    "mass-follow",
+    toIdFragment(idPrefix),
+    `${toIdFragment(itemId)}-${itemIndex}`,
+    variantId ? `variant-${toIdFragment(variantId)}` : "base",
+    `line-${lineIndex}`,
+    `chunk-${chunkIndex}`,
+  ].join("-");
 }
 
 function getSpokenRoles(lines: readonly MassDialogueLine[]) {

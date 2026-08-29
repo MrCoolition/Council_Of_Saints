@@ -10,6 +10,12 @@ import {
   type MassDialogueLine,
 } from "../src/lib/mass-order";
 import {
+  findMassSpeechMatch,
+  normalizeMassSpeech,
+  splitMassSpeechText,
+  type MassSpeechCandidate,
+} from "../src/lib/mass-speech-following";
+import {
   AUGUST_1_2026_US_MASS_READINGS,
   AUGUST_2_2026_US_MASS_READINGS,
   getCuratedUsMassReadingsEntries,
@@ -31,6 +37,7 @@ async function main() {
   validateOfficialUrls();
   validateProfiles();
   validateMassOrderSchema();
+  validateMassSpeechFollowing();
   validateGoldenFixtures();
   validateUsccbFeedParser();
   validateUsccbRelatedReadingResolver();
@@ -141,6 +148,295 @@ function validateMassOrderSchema() {
     "All four principal Eucharistic Prayers are required",
   );
   assert(dismissal?.variants?.length === 4, "All four dismissals are required");
+}
+
+function validateMassSpeechFollowing() {
+  assert(
+    normalizeMassSpeech("  GLÓRIA—Lord’s! & “Peace.”  ") ===
+      "gloria lords and peace",
+    "Speech normalization must ignore accents, punctuation, case, and spacing",
+  );
+
+  const displayText = Array.from({ length: 41 }, (_, index) => {
+    if (index === 40) {
+      return `Word${index + 1}!`;
+    }
+    if (index === 10) {
+      return `Word${index + 1},\n`;
+    }
+    if (index === 20) {
+      return `Word${index + 1}.  `;
+    }
+    return `Word${index + 1} `;
+  }).join("");
+  const displayChunks = splitMassSpeechText(displayText);
+  assert(
+    displayChunks.join("") === displayText,
+    "Speech chunks must preserve the exact visible text when rejoined",
+  );
+  assert(
+    displayChunks.length === 3 &&
+      displayChunks.every((chunk) => {
+        const count = normalizeMassSpeech(chunk).split(" ").length;
+        return count >= 8 && count <= 20;
+      }),
+    "Default speech chunks must be balanced within the 8–20 word bounds",
+  );
+  assert(
+    JSON.stringify(splitMassSpeechText("  Amen.\n")) ===
+      JSON.stringify(["  Amen.\n"]) &&
+      JSON.stringify(splitMassSpeechText("…")) === JSON.stringify(["…"]) &&
+      splitMassSpeechText("").length === 0,
+    "Short, punctuation-only, and empty display text must split losslessly",
+  );
+  expectRangeError(() => splitMassSpeechText("one two three", 4, 3));
+
+  const responseCandidates: MassSpeechCandidate[] = [
+    {
+      id: "opening",
+      order: 1_000,
+      text: "Brothers and sisters let us acknowledge our sins and prepare ourselves to celebrate the sacred mysteries.",
+    },
+    { id: "amen-immediate", order: 2_000, text: "Amen." },
+    {
+      id: "intervening-prayer",
+      order: 3_000,
+      text: "May the Lord guide our hearts with mercy and strengthen our faithful witness throughout this holy celebration.",
+    },
+    { id: "amen-later", order: 9_000, text: "Amen." },
+  ];
+  let match = findMassSpeechMatch({
+    transcript: "room noise ... Amen!",
+    candidates: responseCandidates,
+    currentOrder: 1_000,
+  });
+  assert(
+    match?.candidate.id === "amen-immediate" && match.scope === "forward",
+    "A short repeated response must advance only to the immediate next target",
+  );
+  match = findMassSpeechMatch({
+    transcript: "Amen.",
+    candidates: responseCandidates,
+    currentOrder: 2_000,
+  });
+  assert(
+    match === null,
+    "A repeated short response must not match the current or a later non-immediate target",
+  );
+
+  const sparseCandidates: MassSpeechCandidate[] = [
+    {
+      id: "sparse-current",
+      order: 1_000,
+      text: "The opening procession approaches the sanctuary while the assembly gathers in reverent silence.",
+    },
+    ...Array.from({ length: 15 }, (_, index) => ({
+      id: `sparse-filler-${index + 1}`,
+      order: (index + 2) * 1_000,
+      text: "Amen.",
+    })),
+    {
+      id: "sixteenth-forward-target",
+      order: 17_000,
+      text: "Cedar branches shimmer beside quiet Jordan waters while faithful pilgrims carry golden lamps toward dawn.",
+    },
+    {
+      id: "seventeenth-forward-target",
+      order: 18_000,
+      text: "Astronomers measure distant galaxies through polished lenses as winter satellites transmit numerical signals across laboratories.",
+    },
+  ];
+  match = findMassSpeechMatch({
+    transcript: "Cedar branches shimmer beside quiet Jordan waters while faithful pilgrims carry golden lamps toward dawn.",
+    candidates: sparseCandidates,
+    currentOrder: 1_000,
+  });
+  assert(
+    match?.candidate.id === "sixteenth-forward-target",
+    "The forward window must count sixteen distinct sparse target orders",
+  );
+  match = findMassSpeechMatch({
+    transcript: "Astronomers measure distant galaxies through polished lenses as winter satellites transmit numerical signals across laboratories.",
+    candidates: sparseCandidates,
+    currentOrder: 1_000,
+  });
+  assert(
+    match === null,
+    "The seventeenth distinct order must remain outside the forward window",
+  );
+  match = findMassSpeechMatch({
+    transcript: "Astronomers measure distant galaxies through polished lenses as winter satellites transmit numerical signals across laboratories.",
+    candidates: sparseCandidates,
+    currentOrder: 1_000,
+    allowGlobal: true,
+  });
+  assert(
+    match?.candidate.id === "seventeenth-forward-target" &&
+      match.scope === "global",
+    "Global reacquisition must recover a distinctive future phrase beyond the forward window",
+  );
+
+  const readingCandidates: MassSpeechCandidate[] = [
+    {
+      id: "first-reading",
+      order: 10_000,
+      label: "First Reading",
+      text: "Beloved, let us love one another, because love is of God; everyone who loves is begotten by God and knows God.",
+    },
+    {
+      id: "gospel-reading",
+      order: 20_000,
+      label: "Gospel",
+      text: "Jesus entered the boat and his disciples followed him. Suddenly a violent storm came up on the sea, so that the boat was being swamped by waves.",
+    },
+  ];
+  match = findMassSpeechMatch({
+    transcript: "organ crackle — JESUS entered the boat, and His disciples followed Him; suddenly a violent storm came up on the sea",
+    candidates: readingCandidates,
+  });
+  assert(
+    match?.candidate.id === "gospel-reading" &&
+      match.candidate.label === "Gospel" &&
+      match.scope === "global" &&
+      match.score >= 0.75,
+    "Global acquisition must tolerate punctuation, casing, and a noisy rolling prefix",
+  );
+  const firstInterimHypothesis = findMassSpeechMatch({
+    transcript:
+      "Beloved let us love one another because love is of God everyone who loves is begotten by God",
+    candidates: readingCandidates,
+  });
+  const correctedInterimHypothesis = findMassSpeechMatch({
+    transcript:
+      "Jesus entered the boat and his disciples followed him suddenly a violent storm came up on the sea",
+    candidates: readingCandidates,
+  });
+  assert(
+    firstInterimHypothesis?.candidate.id === "first-reading" &&
+      correctedInterimHypothesis?.candidate.id === "gospel-reading",
+    "Corrected interim hypotheses must be rescored against the latest spoken wording",
+  );
+  assert(
+    findMassSpeechMatch({
+      transcript: "Jesus boat disciples storm",
+      candidates: readingCandidates,
+    }) === null,
+    "Global acquisition must require at least five informative words",
+  );
+  assert(
+    findMassSpeechMatch({
+      transcript:
+        "unrelated ventilation footsteps coughing traffic outside the building",
+      candidates: readingCandidates,
+    }) === null,
+    "Unrelated background speech must leave the current position unchanged",
+  );
+  assert(
+    findMassSpeechMatch({
+      transcript: "Jesus entered the boat and his disciples followed him suddenly a violent storm came up on the sea",
+      candidates: readingCandidates,
+      allowGlobal: false,
+    }) === null,
+    "Callers must be able to disable global acquisition",
+  );
+
+  const repeatedLongText =
+    "May almighty God bless you the Father and the Son and the Holy Spirit and keep you in peace.";
+  assert(
+    findMassSpeechMatch({
+      transcript: repeatedLongText,
+      candidates: [
+        { id: "repeat-a", order: 1_000, text: repeatedLongText },
+        { id: "repeat-b", order: 2_000, text: repeatedLongText },
+      ],
+    }) === null,
+    "Global acquisition must reject a winner without a fifteen-point margin",
+  );
+
+  const pastText =
+    "Martha welcomed Jesus into her home and listened quietly while he taught the gathered disciples.";
+  assert(
+    findMassSpeechMatch({
+      transcript: pastText,
+      candidates: [
+        { id: "past-reading", order: 1_000, text: pastText },
+        {
+          id: "future-reading",
+          order: 9_000,
+          text: "Copper engines calculate orbital pressure beneath frozen titanium chambers during remote laboratory calibration.",
+        },
+      ],
+      currentOrder: 5_000,
+      allowGlobal: true,
+    }) === null,
+    "Forward and global recovery must never move to a previous order",
+  );
+
+  const variantCandidates: MassSpeechCandidate[] = [
+    {
+      id: "creed-introduction",
+      order: 1_000,
+      text: "Together with the whole Church let us now profess the faith handed down to us.",
+    },
+    {
+      id: "nicene-creed",
+      order: 5_000,
+      label: "Nicene Creed",
+      text: "I believe in one God the Father almighty maker of heaven and earth of all things visible and invisible.",
+    },
+    {
+      id: "apostles-creed",
+      order: 5_000,
+      label: "Apostles’ Creed",
+      text: "I believe in God the Father almighty creator of heaven and earth and in Jesus Christ his only Son our Lord.",
+    },
+  ];
+  match = findMassSpeechMatch({
+    transcript: "I believe in God, the Father almighty, creator of heaven and earth, and in Jesus Christ, his only Son, our Lord.",
+    candidates: variantCandidates,
+    currentOrder: 1_000,
+  });
+  assert(
+    match?.candidate.id === "apostles-creed" &&
+      match.candidate.order === 5_000,
+    "Candidates sharing one order must remain independently matchable variants",
+  );
+
+  const orderedText =
+    "Merciful Father gather your scattered children into one faithful family beneath the light of truth.";
+  assert(
+    findMassSpeechMatch({
+      transcript: normalizeMassSpeech(orderedText).split(" ").reverse().join(" "),
+      candidates: [
+        { id: "ordered-target", order: 1_000, text: orderedText },
+        {
+          id: "ordered-decoy",
+          order: 2_000,
+          text: "Bright morning bells awaken distant villages beside the valley orchard and flowing river.",
+        },
+      ],
+    }) === null,
+    "Token similarity must preserve spoken order rather than use a word bag",
+  );
+
+  const rollingTarget =
+    "The Lord remembers his covenant forever and feeds the gathered people with wisdom mercy justice and peace.";
+  match = findMassSpeechMatch({
+    transcript: `${Array.from({ length: 30 }, (_, index) => `noise${index}`).join(" ")} ${rollingTarget}`,
+    candidates: [
+      {
+        id: "rolling-current",
+        order: 1_000,
+        text: "The choir completes the entrance chant as the ministers approach the altar in procession.",
+      },
+      { id: "rolling-target", order: 8_000, text: rollingTarget },
+    ],
+    currentOrder: 1_000,
+  });
+  assert(
+    match?.candidate.id === "rolling-target",
+    "Matching must use the relevant suffix of a growing rolling transcript",
+  );
 }
 
 function validateDialogueLines(
