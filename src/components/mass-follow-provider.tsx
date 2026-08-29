@@ -45,6 +45,12 @@ export type MassFollowServiceMode =
   | "on-device"
   | "browser-managed";
 
+export type MassFollowWakeLockStatus =
+  | "inactive"
+  | "requesting"
+  | "active"
+  | "unavailable";
+
 export type MassFollowActivity =
   | "idle"
   | "requesting"
@@ -68,6 +74,7 @@ export type MassFollowState = {
   activeTargetLabel: string | null;
   errorMessage: string | null;
   serviceMode: MassFollowServiceMode;
+  wakeLockStatus: MassFollowWakeLockStatus;
   activity: MassFollowActivity;
   start: () => void;
   pause: () => void;
@@ -135,6 +142,10 @@ type SpeechRecognitionWindow = Window & {
   webkitSpeechRecognition?: SpeechRecognitionConstructorLike;
 };
 
+type WakeLockNavigator = Navigator & {
+  wakeLock?: WakeLock;
+};
+
 type TargetRegistryContextValue = {
   registerTargets: (
     owner: symbol,
@@ -165,6 +176,8 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [serviceMode, setServiceMode] =
     useState<MassFollowServiceMode>("unknown");
+  const [wakeLockStatus, setWakeLockStatus] =
+    useState<MassFollowWakeLockStatus>("inactive");
   const [activity, setActivity] = useState<MassFollowActivity>("idle");
   const [disclosureOpen, setDisclosureOpen] = useState(false);
   const [consentGiven, setConsentGiven] = useState(false);
@@ -188,6 +201,12 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
   const pendingInterimMatchRef = useRef<PendingInterimMatch | null>(null);
   const lastScrolledTargetRef = useRef<string | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const wakeLockSentinelRef = useRef<WakeLockSentinel | null>(null);
+  const wakeLockReleaseListenerRef = useRef<{
+    listener: () => void;
+    sentinel: WakeLockSentinel;
+  } | null>(null);
+  const wakeLockGenerationRef = useRef(0);
 
   const updateStatus = useCallback((nextStatus: MassFollowStatus) => {
     statusRef.current = nextStatus;
@@ -266,6 +285,107 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const releaseWakeLock = useCallback(() => {
+    wakeLockGenerationRef.current += 1;
+    const sentinel = wakeLockSentinelRef.current;
+    const releaseListener = wakeLockReleaseListenerRef.current;
+    wakeLockSentinelRef.current = null;
+    wakeLockReleaseListenerRef.current = null;
+
+    if (releaseListener) {
+      releaseListener.sentinel.removeEventListener(
+        "release",
+        releaseListener.listener,
+      );
+    }
+    if (mountedRef.current) {
+      setWakeLockStatus("inactive");
+    }
+    if (sentinel && !sentinel.released) {
+      void sentinel.release().catch(() => {
+        // A failed release does not affect speech recognition or user controls.
+      });
+    }
+  }, []);
+
+  const acquireWakeLock = useCallback(async () => {
+    if (
+      !mountedRef.current ||
+      !wantsListeningRef.current ||
+      isDocumentHidden()
+    ) {
+      return;
+    }
+
+    const currentSentinel = wakeLockSentinelRef.current;
+    if (currentSentinel && !currentSentinel.released) {
+      setWakeLockStatus("active");
+      return;
+    }
+
+    const wakeLock = getScreenWakeLock();
+    if (!wakeLock) {
+      setWakeLockStatus("unavailable");
+      return;
+    }
+
+    const generation = wakeLockGenerationRef.current + 1;
+    wakeLockGenerationRef.current = generation;
+    setWakeLockStatus("requesting");
+
+    let sentinel: WakeLockSentinel;
+    try {
+      sentinel = await wakeLock.request("screen");
+    } catch {
+      if (
+        mountedRef.current &&
+        generation === wakeLockGenerationRef.current &&
+        wantsListeningRef.current &&
+        !isDocumentHidden()
+      ) {
+        setWakeLockStatus("unavailable");
+      }
+      return;
+    }
+
+    if (
+      !mountedRef.current ||
+      generation !== wakeLockGenerationRef.current ||
+      !wantsListeningRef.current ||
+      isDocumentHidden()
+    ) {
+      void sentinel.release().catch(() => {
+        // This request was superseded; the stale sentinel is safe to discard.
+      });
+      return;
+    }
+
+    const handleRelease = () => {
+      if (wakeLockSentinelRef.current !== sentinel) {
+        return;
+      }
+      wakeLockGenerationRef.current += 1;
+      wakeLockSentinelRef.current = null;
+      wakeLockReleaseListenerRef.current = null;
+      if (!mountedRef.current) {
+        return;
+      }
+      setWakeLockStatus(
+        wantsListeningRef.current && !isDocumentHidden()
+          ? "unavailable"
+          : "inactive",
+      );
+    };
+
+    sentinel.addEventListener("release", handleRelease);
+    wakeLockSentinelRef.current = sentinel;
+    wakeLockReleaseListenerRef.current = {
+      listener: handleRelease,
+      sentinel,
+    };
+    setWakeLockStatus("active");
+  }, []);
+
   const pause = useCallback(
     (reason = "Following is paused.") => {
       if (statusRef.current !== "listening") {
@@ -275,13 +395,19 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
       wantsListeningRef.current = false;
       clearRestartTimer();
       disposeCurrentRecognition();
+      releaseWakeLock();
       rollingWordsRef.current = [];
       pendingInterimMatchRef.current = null;
       setPauseReason(reason);
       setActivity("paused");
       updateStatus("paused");
     },
-    [clearRestartTimer, disposeCurrentRecognition, updateStatus],
+    [
+      clearRestartTimer,
+      disposeCurrentRecognition,
+      releaseWakeLock,
+      updateStatus,
+    ],
   );
 
   const stop = useCallback(() => {
@@ -289,6 +415,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     wantsListeningRef.current = false;
     clearRestartTimer();
     disposeCurrentRecognition();
+    releaseWakeLock();
     cancelPendingScroll();
     restartAttemptsRef.current = 0;
     rollingWordsRef.current = [];
@@ -309,6 +436,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     cancelPendingScroll,
     clearRestartTimer,
     disposeCurrentRecognition,
+    releaseWakeLock,
     updateStatus,
   ]);
 
@@ -546,6 +674,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     wantsListeningRef.current = false;
     clearRestartTimer();
     disposeCurrentRecognition();
+    releaseWakeLock();
     setErrorMessage(message);
     setPauseReason(null);
     setActivity(denied ? "denied" : "retrying");
@@ -613,6 +742,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     clearRestartTimer();
     disposeCurrentRecognition();
     wantsListeningRef.current = true;
+    void acquireWakeLock();
     restartAttemptsRef.current = 0;
     rollingWordsRef.current = [];
     pendingInterimMatchRef.current = null;
@@ -756,6 +886,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
       }
       sessionGenerationRef.current += 1;
       wantsListeningRef.current = false;
+      releaseWakeLock();
       if (restartTimerRef.current !== null) {
         window.clearTimeout(restartTimerRef.current);
         restartTimerRef.current = null;
@@ -777,12 +908,18 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
         }
       }
     };
-  }, [updateStatus]);
+  }, [releaseWakeLock, updateStatus]);
 
   useEffect(() => {
     function handleVisibilityChange() {
       if (document.visibilityState === "hidden") {
-        pause("Following paused because this page is hidden.");
+        const shouldPause =
+          wantsListeningRef.current && statusRef.current === "listening";
+        if (shouldPause) {
+          pause("Following paused because this page is hidden.");
+        } else {
+          releaseWakeLock();
+        }
       }
     }
 
@@ -790,7 +927,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [pause]);
+  }, [pause, releaseWakeLock]);
 
   useEffect(() => {
     function isFollowControlEvent(event: Event) {
@@ -819,7 +956,10 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
         "PageDown",
         "PageUp",
       ]);
-      if (!navigationKeys.has(event.key) || isFollowControlEvent(event)) {
+      if (
+        !navigationKeys.has(event.key) ||
+        isFollowControlEvent(event)
+      ) {
         return;
       }
       if (
@@ -861,6 +1001,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     activeTargetLabel,
     errorMessage,
     serviceMode,
+    wakeLockStatus,
     activity,
     start: requestStart,
     pause: () => pause(),
@@ -886,6 +1027,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
           pauseReason={pauseReason}
           serviceMode={serviceMode}
           status={status}
+          wakeLockStatus={wakeLockStatus}
         />
       </MassFollowStateContext.Provider>
     </TargetRegistryContext.Provider>
@@ -928,6 +1070,7 @@ function MassFollowControl({
   pauseReason,
   serviceMode,
   status,
+  wakeLockStatus,
 }: {
   activeTargetLabel: string | null;
   activity: MassFollowActivity;
@@ -942,14 +1085,49 @@ function MassFollowControl({
   pauseReason: string | null;
   serviceMode: MassFollowServiceMode;
   status: MassFollowStatus;
+  wakeLockStatus: MassFollowWakeLockStatus;
 }) {
+  const showMobileDetail =
+    activity === "requesting" ||
+    activity === "retrying" ||
+    activity === "paused" ||
+    activity === "denied" ||
+    activity === "unavailable" ||
+    wakeLockStatus === "unavailable";
+  const statusDetail = getStatusDetail({
+    activity,
+    errorMessage,
+    pauseReason,
+    serviceMode,
+    wakeLockStatus,
+  });
+
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-[70] px-3"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[70]"
       data-mass-follow-control
-      style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      style={{
+        paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))",
+        paddingLeft: "max(0.5rem, env(safe-area-inset-left))",
+        paddingRight: "max(0.5rem, env(safe-area-inset-right))",
+      }}
     >
-      <div className="pointer-events-auto mx-auto max-w-xl rounded-3xl border border-[color:var(--gilt)]/45 bg-[color:var(--sanctuary-night)]/95 p-3 text-[var(--vellum)] shadow-[0_20px_70px_rgba(0,0,0,0.32)] backdrop-blur-md sm:p-4">
+      <div
+        className={[
+          "pointer-events-auto mx-auto border text-[var(--vellum)] backdrop-blur-md",
+          disclosureOpen
+            ? "max-w-xl overflow-y-auto overscroll-contain rounded-3xl border-[color:var(--gilt)]/45 bg-[color:var(--sanctuary-night)]/95 p-3 shadow-[0_20px_70px_rgba(0,0,0,0.32)] sm:p-4"
+            : "max-w-lg rounded-2xl border-white/15 bg-[color:var(--sanctuary-night)]/88 p-2 shadow-[0_10px_32px_rgba(0,0,0,0.22)]",
+        ].join(" ")}
+        style={
+          disclosureOpen
+            ? {
+                maxHeight:
+                  "calc(100dvh - max(1rem, env(safe-area-inset-top)) - max(1rem, env(safe-area-inset-bottom)))",
+              }
+            : undefined
+        }
+      >
         {disclosureOpen ? (
           <div aria-labelledby="mass-follow-disclosure-title" role="dialog">
             <div className="flex items-start gap-3">
@@ -968,7 +1146,8 @@ function MassFollowControl({
                   device&apos;s microphone. An already-installed on-device English
                   model is preferred; otherwise the browser may send audio to its
                   speech service. This app does not store or log audio or transcripts,
-                  and it will not download a speech model.
+                  and it will not download a speech model. While following, the app
+                  will also ask the browser to keep this screen awake.
                 </p>
               </div>
             </div>
@@ -990,22 +1169,25 @@ function MassFollowControl({
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <StatusIcon status={status} />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-bold">
-                {getStatusTitle(activity, activeTargetLabel)}
+              <p className="flex min-w-0 items-center gap-1.5 text-[0.78rem] font-bold sm:text-sm">
+                <span className="truncate">
+                  {getStatusTitle(activity, activeTargetLabel)}
+                </span>
+                <WakeLockBadge
+                  status={status}
+                  wakeLockStatus={wakeLockStatus}
+                />
               </p>
-              <p className="truncate text-xs text-[color:var(--vellum)]/65">
-                {getStatusDetail({
-                  activity,
-                  errorMessage,
-                  pauseReason,
-                  serviceMode,
-                })}
+              <p
+                className={`${showMobileDetail ? "block" : "hidden sm:block"} truncate text-[0.68rem] text-[color:var(--vellum)]/60`}
+              >
+                {statusDetail}
               </p>
               <p aria-live="polite" className="sr-only">
-                {getActivityAnnouncement(activity)}
+                {getActivityAnnouncement(activity, wakeLockStatus)}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -1063,35 +1245,65 @@ function MassFollowControl({
 
 function StatusIcon({ status }: { status: MassFollowStatus }) {
   const className =
-    "inline-flex size-10 shrink-0 items-center justify-center rounded-full";
+    "inline-flex size-8 shrink-0 items-center justify-center rounded-full";
   if (status === "listening") {
     return (
       <span
         className={`${className} bg-emerald-400/15 text-emerald-200 motion-safe:animate-pulse`}
       >
-        <Mic aria-hidden className="size-5" />
+        <Mic aria-hidden className="size-4" />
       </span>
     );
   }
   if (status === "error") {
     return (
       <span className={`${className} bg-red-400/15 text-red-200`}>
-        <AlertTriangle aria-hidden className="size-5" />
+        <AlertTriangle aria-hidden className="size-4" />
       </span>
     );
   }
   if (status === "paused") {
     return (
       <span className={`${className} bg-amber-300/15 text-amber-100`}>
-        <Pause aria-hidden className="size-5" />
+        <Pause aria-hidden className="size-4" />
       </span>
     );
   }
   return (
     <span className={`${className} bg-white/10 text-[color:var(--vellum)]/75`}>
-      <MicOff aria-hidden className="size-5" />
+      <MicOff aria-hidden className="size-4" />
     </span>
   );
+}
+
+function WakeLockBadge({
+  status,
+  wakeLockStatus,
+}: {
+  status: MassFollowStatus;
+  wakeLockStatus: MassFollowWakeLockStatus;
+}) {
+  if (status !== "listening") {
+    return null;
+  }
+  if (wakeLockStatus === "active") {
+    return (
+      <span className="shrink-0 whitespace-nowrap rounded-full bg-emerald-400/15 px-1.5 py-0.5 text-[0.62rem] font-semibold text-emerald-200">
+        Awake
+      </span>
+    );
+  }
+  if (wakeLockStatus === "unavailable") {
+    return (
+      <span
+        className="shrink-0 whitespace-nowrap rounded-full bg-amber-300/15 px-1.5 py-0.5 text-[0.62rem] font-semibold text-amber-100"
+        title="This browser or device did not grant a screen wake lock. Voice following will keep working."
+      >
+        Awake unavailable
+      </span>
+    );
+  }
+  return null;
 }
 
 function ControlButton({
@@ -1105,7 +1317,7 @@ function ControlButton({
 }) {
   return (
     <button
-      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[var(--gilt-light)] px-4 text-xs font-bold text-[var(--sanctuary-night)]"
+      className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full bg-[var(--gilt-light)] px-3 text-xs font-bold text-[var(--sanctuary-night)]"
       onClick={onClick}
       type="button"
     >
@@ -1147,6 +1359,17 @@ function getSpeechRecognitionConstructor() {
     speechWindow.webkitSpeechRecognition ??
     null
   );
+}
+
+function getScreenWakeLock() {
+  if (typeof navigator === "undefined") {
+    return null;
+  }
+  return (navigator as WakeLockNavigator).wakeLock ?? null;
+}
+
+function isDocumentHidden() {
+  return document.visibilityState === "hidden";
 }
 
 function appendToWordWindow(
@@ -1205,11 +1428,13 @@ function getStatusDetail({
   errorMessage,
   pauseReason,
   serviceMode,
+  wakeLockStatus,
 }: {
   activity: MassFollowActivity;
   errorMessage: string | null;
   pauseReason: string | null;
   serviceMode: MassFollowServiceMode;
+  wakeLockStatus: MassFollowWakeLockStatus;
 }) {
   if (activity === "unavailable") {
     return "Use the Mass navigation controls in this browser.";
@@ -1224,6 +1449,9 @@ function getStatusDetail({
     return "Your browser may show a microphone permission prompt.";
   }
   if (activity === "listening" || activity === "following") {
+    if (wakeLockStatus === "unavailable") {
+      return "Screen awake mode is unavailable; voice following still works.";
+    }
     if (serviceMode === "on-device") {
       return "Using an installed on-device English speech model.";
     }
@@ -1232,23 +1460,50 @@ function getStatusDetail({
   return "Tap Follow Mass to hear and follow the spoken text.";
 }
 
-function getActivityAnnouncement(activity: MassFollowActivity) {
+function getActivityAnnouncement(
+  activity: MassFollowActivity,
+  wakeLockStatus: MassFollowWakeLockStatus,
+) {
+  let announcement: string;
   switch (activity) {
     case "requesting":
-      return "Microphone permission requested.";
+      announcement = "Microphone permission requested.";
+      break;
     case "listening":
-      return "Voice following is listening.";
+      announcement = "Voice following is listening.";
+      break;
     case "following":
-      return "Voice following found the current Mass moment.";
+      announcement = "Voice following found the current Mass moment.";
+      break;
     case "retrying":
-      return "Voice following is reconnecting.";
+      announcement = "Voice following is reconnecting.";
+      break;
     case "paused":
-      return "Voice following paused.";
+      announcement = "Voice following paused.";
+      break;
     case "denied":
-      return "Microphone access denied.";
+      announcement = "Microphone access denied.";
+      break;
     case "unavailable":
-      return "Voice following is unavailable in this browser.";
+      announcement = "Voice following is unavailable in this browser.";
+      break;
     default:
-      return "Voice following is off.";
+      announcement = "Voice following is off.";
+      break;
   }
+
+  if (
+    activity === "requesting" ||
+    activity === "listening" ||
+    activity === "following" ||
+    activity === "retrying"
+  ) {
+    if (wakeLockStatus === "active") {
+      return `${announcement} Screen awake mode is active.`;
+    }
+    if (wakeLockStatus === "unavailable") {
+      return `${announcement} Screen awake mode is unavailable.`;
+    }
+  }
+  return announcement;
 }
