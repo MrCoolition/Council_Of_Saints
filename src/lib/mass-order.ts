@@ -78,7 +78,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
             text: "The Entrance Chant begins. The ministers process to the sanctuary and reverence the altar.",
           },
           {
-            role: "all",
+            role: "rubric",
             text: "Join the Entrance Chant.",
           },
         ],
@@ -190,7 +190,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
             label: "Form C",
             lines: [
               {
-                role: "priest",
+                role: "rubric",
                 text: "The priest or deacon proclaims three invocations naming the mercy of Christ.",
               },
               { role: "people", text: "Lord, have mercy." },
@@ -280,20 +280,20 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
         posture: "Stand",
         lines: [
           {
-            role: "priest",
+            role: "rubric",
             text: "The priest introduces the prayer of the faithful.",
           },
           {
-            role: "reader",
+            role: "rubric",
             text: "The deacon or reader announces each intention.",
             label: "Deacon or Reader",
           },
           {
-            role: "people",
+            role: "rubric",
             text: "Respond with the invocation announced for each intention.",
           },
           {
-            role: "priest",
+            role: "rubric",
             text: "The priest concludes the Universal Prayer.",
           },
           { role: "people", text: "Amen." },
@@ -318,7 +318,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
             text: "The altar is prepared. Bread and wine are brought forward while the Offertory Chant may be sung.",
           },
           {
-            role: "all",
+            role: "rubric",
             text: "Offer your life, work, suffering, and thanksgiving with the gifts placed upon the altar.",
           },
         ],
@@ -368,7 +368,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
         subgroup: "Preparation of the Gifts",
         lines: [
           {
-            role: "priest",
+            role: "rubric",
             text: "The priest proclaims the Prayer over the Offerings appointed for this celebration.",
           },
           { role: "people", text: "Amen." },
@@ -395,7 +395,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
         subgroup: "Eucharistic Prayer",
         lines: [
           {
-            role: "priest",
+            role: "rubric",
             text: "The priest proclaims the Preface appointed for the day, giving thanks to the Father through Christ.",
           },
         ],
@@ -418,7 +418,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
             text: "Kneel. The priest alone proclaims the Eucharistic Prayer in the name of the whole Church.",
           },
           {
-            role: "priest",
+            role: "rubric",
             text: "He gives thanks, invokes the Holy Spirit over the gifts, and proclaims the institution narrative and Consecration.",
           },
           {
@@ -432,7 +432,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
             label: "Eucharistic Prayer I",
             lines: [
               {
-                role: "priest",
+                role: "rubric",
                 text: "The Roman Canon continues through its intercessions for the Church, the living, the Saints, the Consecration, remembrance of the dead, and final praise.",
               },
             ],
@@ -442,7 +442,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
             label: "Eucharistic Prayer II",
             lines: [
               {
-                role: "priest",
+                role: "rubric",
                 text: "Eucharistic Prayer II continues from its proper or appointed Preface through the Consecration, offering, and intercessions.",
               },
             ],
@@ -452,7 +452,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
             label: "Eucharistic Prayer III",
             lines: [
               {
-                role: "priest",
+                role: "rubric",
                 text: "Eucharistic Prayer III continues through the Consecration, the Church's offering, and intercession for the living and the dead.",
               },
             ],
@@ -462,7 +462,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
             label: "Eucharistic Prayer IV",
             lines: [
               {
-                role: "priest",
+                role: "rubric",
                 text: "Eucharistic Prayer IV continues from its proper Preface through salvation history, the Consecration, offering, and intercessions.",
               },
             ],
@@ -516,7 +516,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
         subgroup: "Eucharistic Prayer",
         lines: [
           {
-            role: "priest",
+            role: "rubric",
             text: "The priest recalls the saving Passion, Resurrection, and Ascension of Christ; offers the holy and living Sacrifice; and intercedes for the Church, the living, and the dead.",
           },
         ],
@@ -555,7 +555,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
         lines: [
           {
             role: "priest",
-            text: "The priest asks the Father to deliver us from evil and grant peace in our days.",
+            text: "Deliver us, Lord, we pray, from every evil, graciously grant peace in our days, that, by the help of your mercy, we may be always free from sin and safe from all distress, as we await the blessed hope and the coming of our Savior, Jesus Christ.",
           },
           {
             role: "people",
@@ -678,7 +678,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
         lines: [
           { role: "priest", text: "Let us pray." },
           {
-            role: "priest",
+            role: "rubric",
             text: "The priest proclaims the Prayer after Communion appointed for this celebration.",
           },
           { role: "people", text: "Amen." },
@@ -743,7 +743,7 @@ const MASS_ORDER_SECTIONS_VALUE: readonly MassOrderSection[] = [
                 text: "Bow down for the blessing.",
               },
               {
-                role: "priest",
+                role: "rubric",
                 text: "The priest proclaims the appointed Prayer over the People and gives the Trinitarian blessing.",
               },
               { role: "people", text: "Amen." },

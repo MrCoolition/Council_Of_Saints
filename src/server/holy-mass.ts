@@ -16,11 +16,17 @@ import {
   type MassResponsorialPsalm,
   type MassScriptureSelection,
 } from "@/lib/mass-readings";
+import {
+  getCompatibleMassProperTitleAliases,
+  type MassCelebrationPropers,
+  type MassCelebrationPropersByReadingSetId,
+} from "@/lib/mass-propers";
 import type { ScripturePassage } from "@/lib/scripture";
 import {
   loadScripturePassage,
   type LoadedScriptureSegment,
 } from "@/server/scripture-passages";
+import { getMassCelebrationPropers } from "@/server/mass-propers";
 import { getTodayPayload } from "@/server/today";
 import {
   getUsccbLectionaryReadingSetsForDate,
@@ -72,6 +78,8 @@ export type HolyMassCelebrationView = {
   massLectionary: UsccbLectionaryItem | null;
   readingSets: HolyMassReadingSet[];
   options: HolyMassLoadedOption[];
+  propers: MassCelebrationPropers | null;
+  propersByReadingSetId: MassCelebrationPropersByReadingSetId;
   riteKind: HolyMassRiteKind;
 };
 
@@ -144,6 +152,8 @@ export async function getHolyMassPageData(
           massLectionary: null,
           readingSets: [],
           options: [],
+          propers: null,
+          propersByReadingSetId: {},
           profile: {
             id: "easter-vigil",
             label: "Easter Vigil",
@@ -177,19 +187,46 @@ async function loadCelebration(
   const entry = getUsMassReadingsForDate(day.localDate);
   const officialReadingsUrl = getUsccbDailyReadingsUrl(day.localDate);
   const requirements = deriveRequirements(day, mode, riteKind);
-  const [loadedReadingSets, options] = await Promise.all([
-    getUsccbLectionaryReadingSetsForDate(day.localDate),
-    entry.status === "curated"
-      ? Promise.all(entry.options.map(loadOption))
-      : Promise.resolve([]),
+  const calendarTitle =
+    entry.status === "curated" ? entry.observance.title : day.title;
+  const readingSetsPromise = getUsccbLectionaryReadingSetsForDate(
+    day.localDate,
+  );
+  const optionsPromise = entry.status === "curated"
+    ? Promise.all(entry.options.map(loadOption))
+    : Promise.resolve([]);
+  const calendarPropersPromise = getMassCelebrationPropers({
+    localDate: day.localDate,
+    massForm: mode,
+    season: day.season,
+    title: calendarTitle,
+    titleAliases: getCompatibleMassProperTitleAliases(calendarTitle, [
+      day.title,
+    ]),
+  });
+  const loadedReadingSets = await readingSetsPromise;
+  const massLectionaryReadingSet = loadedReadingSets.find(
+    (readingSet) => readingSet.sourceKind === "daily",
+  ) ?? null;
+  const massLectionary = massLectionaryReadingSet?.item ?? null;
+  const title = massLectionary?.title ?? calendarTitle;
+  const propersByReadingSetIdPromise = resolveReadingSetPropers({
+    calendarPropersPromise,
+    calendarTitle,
+    day,
+    displayTitle: title,
+    mode,
+    readingSets: loadedReadingSets,
+  });
+  const [options, calendarPropers, propersByReadingSetId] = await Promise.all([
+    optionsPromise,
+    calendarPropersPromise,
+    propersByReadingSetIdPromise,
   ]);
   const readingSets = loadedReadingSets.map((readingSet) => ({
     ...readingSet,
     douayOptionId: findMatchingDouayOption(readingSet, options)?.id ?? null,
   }));
-  const massLectionary = readingSets.find(
-    (readingSet) => readingSet.sourceKind === "daily",
-  )?.item ?? null;
   const profile: MassCelebrationProfile = entry.status === "curated"
     ? entry.observance.profile
     : {
@@ -200,14 +237,16 @@ async function loadCelebration(
   const lectionaryNumbers = readingSets
     .map((readingSet) => readingSet.lectionaryNumber)
     .filter((number): number is number => number !== null);
+  const propers = massLectionaryReadingSet
+    ? propersByReadingSetId[massLectionaryReadingSet.id] ?? null
+    : calendarPropers;
 
   return {
     id: `${day.localDate}:${mode}:${profile.id}`,
     mode,
     localDate: day.localDate,
     dateLabel: formatMassDate(day.localDate),
-    title: massLectionary?.title ??
-      (entry.status === "curated" ? entry.observance.title : day.title),
+    title,
     rank: entry.status === "curated"
       ? displayRank(entry.observance.rank)
       : day.rank,
@@ -226,8 +265,76 @@ async function loadCelebration(
     massLectionary,
     readingSets,
     options,
+    propers,
+    propersByReadingSetId,
     riteKind,
   };
+}
+
+async function resolveReadingSetPropers({
+  calendarPropersPromise,
+  calendarTitle,
+  day,
+  displayTitle,
+  mode,
+  readingSets,
+}: {
+  calendarPropersPromise: Promise<MassCelebrationPropers | null>;
+  calendarTitle: string;
+  day: LiturgicalDaySummary;
+  displayTitle: string;
+  mode: HolyMassCelebrationView["mode"];
+  readingSets: readonly UsccbLectionaryReadingSet[];
+}): Promise<MassCelebrationPropersByReadingSetId> {
+  const calendarKey = normalizeProperLookupTitle(calendarTitle);
+  const groupedLookups = new Map<
+    string,
+    { aliases: Set<string>; readingSetIds: string[]; title: string }
+  >();
+
+  for (const readingSet of readingSets) {
+    const key = normalizeProperLookupTitle(readingSet.item.title);
+    const lookup = groupedLookups.get(key) ?? {
+      aliases: new Set<string>(),
+      readingSetIds: [],
+      title: readingSet.item.title,
+    };
+    lookup.readingSetIds.push(readingSet.id);
+    for (const alias of [calendarTitle, day.title, displayTitle]) {
+      if (alias.trim() && normalizeProperLookupTitle(alias) !== key) {
+        lookup.aliases.add(alias);
+      }
+    }
+    groupedLookups.set(key, lookup);
+  }
+
+  const resolvedGroups = await Promise.all(
+    [...groupedLookups.entries()].map(async ([key, lookup]) => ({
+      propers: key === calendarKey
+        ? await calendarPropersPromise
+        : await getMassCelebrationPropers({
+            localDate: day.localDate,
+            massForm: mode,
+            season: day.season,
+            title: lookup.title,
+            titleAliases: getCompatibleMassProperTitleAliases(
+              lookup.title,
+              [...lookup.aliases],
+            ),
+          }),
+      readingSetIds: lookup.readingSetIds,
+    })),
+  );
+
+  return Object.fromEntries(
+    resolvedGroups.flatMap(({ propers, readingSetIds }) =>
+      readingSetIds.map((readingSetId) => [readingSetId, propers] as const),
+    ),
+  );
+}
+
+function normalizeProperLookupTitle(value: string) {
+  return value.trim().toLocaleLowerCase("en-US").replace(/\s+/gu, " ");
 }
 
 async function loadOption(

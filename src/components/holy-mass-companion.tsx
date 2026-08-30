@@ -34,12 +34,22 @@ import {
   GLORIA_TEXT,
   MASS_ORDER_SECTIONS,
   NICENE_CREED_TEXT,
+  type MassDialogueLine,
   type MassOrderItem,
   type MassOrderSection,
   type MassPosture,
 } from "@/lib/mass-order";
+import {
+  getMassPropersForReadingSet,
+  type MassCelebrationPropers,
+  type MassProperPrefaceOption,
+} from "@/lib/mass-propers";
 import { MassDialogueOrder } from "@/components/mass-dialogue-order";
-import { splitMassSpeechText } from "@/lib/mass-speech-following";
+import {
+  createMassSpeechBridgeText,
+  splitMassSpeechText,
+  type MassSpeechCandidateMode,
+} from "@/lib/mass-speech-following";
 import {
   type HolyMassRiteKind,
   resolveSaturdayMassContext,
@@ -416,6 +426,283 @@ function getMassSections(riteKind: HolyMassRiteKind) {
   );
 }
 
+function withProperOptions<T>({
+  idPrefix,
+  item,
+  leadingLines,
+  optionLabel,
+  optionLines,
+  options,
+  trailingLines,
+}: {
+  idPrefix: string;
+  item: MassOrderItem;
+  leadingLines: readonly MassDialogueLine[];
+  optionLabel: (option: T, index: number) => string;
+  optionLines: (option: T, index: number) => readonly MassDialogueLine[];
+  options: readonly T[];
+  trailingLines: readonly MassDialogueLine[];
+}): MassOrderItem {
+  const firstOption = options[0];
+  if (!firstOption) {
+    return item;
+  }
+
+  if (options.length === 1) {
+    return {
+      ...item,
+      defaultVariantId: undefined,
+      lines: [
+        ...leadingLines,
+        ...optionLines(firstOption, 0),
+        ...trailingLines,
+      ],
+      variants: undefined,
+    };
+  }
+
+  return {
+    ...item,
+    defaultVariantId: `${idPrefix}-1`,
+    lines: leadingLines,
+    variants: options.map((option, index) => ({
+      id: `${idPrefix}-${index + 1}`,
+      label: optionLabel(option, index),
+      lines: [...optionLines(option, index), ...trailingLines],
+    })),
+  };
+}
+
+function withPrefaceOptions(
+  item: MassOrderItem,
+  options: readonly MassProperPrefaceOption[],
+): MassOrderItem {
+  const spokenOptions = options.flatMap((option) =>
+    option.text === null
+      ? []
+      : [{ label: option.label, text: option.text }],
+  );
+  const lines: readonly MassDialogueLine[] = [
+    {
+      role: "rubric",
+      text: "The priest selects and proclaims an appropriate Preface permitted for this celebration, giving thanks to the Father through Christ.",
+    },
+    ...options.flatMap((option) =>
+      option.text === null
+        ? [
+            {
+              label: "Missal direction",
+              role: "rubric" as const,
+              text: option.label,
+            },
+          ]
+        : [],
+    ),
+  ];
+
+  if (spokenOptions.length === 0) {
+    return {
+      ...item,
+      defaultVariantId: undefined,
+      lines,
+      title: "Preface",
+      variants: undefined,
+    };
+  }
+
+  return {
+    ...item,
+    defaultVariantId: "preface-option-1",
+    lines,
+    title: "Preface",
+    variants: spokenOptions.map((option, index) => ({
+      id: `preface-option-${index + 1}`,
+      label: option.label,
+      lines: [{ role: "priest", text: option.text }],
+    })),
+  };
+}
+
+function addIntroductoryPropers(
+  items: readonly MassOrderItem[],
+  propers: MassCelebrationPropers | null,
+): readonly MassOrderItem[] {
+  if (!propers) {
+    return items;
+  }
+
+  return items.map((item) => {
+    if (item.id === "entrance-procession") {
+      return withProperOptions({
+        idPrefix: "entrance-antiphon-option",
+        item,
+        leadingLines: [
+          {
+            role: "rubric",
+            text: "The Entrance Chant begins. The ministers process to the sanctuary and reverence the altar.",
+          },
+        ],
+        optionLabel: (antiphon, index) =>
+          `Option ${index + 1} · ${antiphon.citation}`,
+        optionLines: (antiphon) => [
+          {
+            role: "all",
+            text: antiphon.text,
+            label: `Entrance Antiphon · ${antiphon.citation}`,
+          },
+        ],
+        options: propers.entranceAntiphons,
+        trailingLines: [
+          {
+            role: "rubric",
+            text: "A parish may sing another approved Entrance Chant or hymn instead of this antiphon.",
+          },
+        ],
+      });
+    }
+
+    if (item.id === "collect") {
+      return withProperOptions({
+        idPrefix: "collect-option",
+        item,
+        leadingLines: [
+          { role: "priest", text: "Let us pray." },
+          { role: "rubric", text: "A brief sacred silence follows." },
+        ],
+        optionLabel: (_collect, index) => `Option ${index + 1}`,
+        optionLines: (collect) => [{ role: "priest", text: collect }],
+        options: propers.collects,
+        trailingLines: [
+          { role: "people", text: "Amen." },
+        ],
+      });
+    }
+
+    return item;
+  });
+}
+
+function addEucharisticPropers(
+  items: readonly MassOrderItem[],
+  propers: MassCelebrationPropers | null,
+): readonly MassOrderItem[] {
+  if (!propers) {
+    return items;
+  }
+
+  const appointed = items.map((item) => {
+    if (item.id === "prayer-over-offerings") {
+      return withProperOptions({
+        idPrefix: "prayer-over-offerings-option",
+        item,
+        leadingLines: [],
+        optionLabel: (_prayer, index) => `Option ${index + 1}`,
+        optionLines: (prayer) => [{ role: "priest", text: prayer }],
+        options: propers.prayersOverOfferings,
+        trailingLines: [
+          { role: "people", text: "Amen." },
+        ],
+      });
+    }
+
+    if (item.id === "proper-preface") {
+      return withPrefaceOptions(item, propers.prefaceOptions);
+    }
+
+    if (item.id === "prayer-after-communion") {
+      return withProperOptions({
+        idPrefix: "prayer-after-communion-option",
+        item,
+        leadingLines: [
+          { role: "priest", text: "Let us pray." },
+        ],
+        optionLabel: (_prayer, index) => `Option ${index + 1}`,
+        optionLines: (prayer) => [{ role: "priest", text: prayer }],
+        options: propers.prayersAfterCommunion,
+        trailingLines: [
+          { role: "people", text: "Amen." },
+        ],
+      });
+    }
+
+    return item;
+  });
+
+  if (propers.communionAntiphons.length === 0) {
+    return appointed;
+  }
+
+  const communionIndex = appointed.findIndex(
+    (item) => item.id === "holy-communion",
+  );
+  if (communionIndex < 0) {
+    return appointed;
+  }
+
+  const communionRubric: MassDialogueLine = {
+    role: "rubric",
+    text:
+      propers.communionAntiphons.length > 1
+        ? "One of these appointed antiphons may be used. A parish may sing another approved Communion Chant instead."
+        : "The appointed antiphon may be used. A parish may sing another approved Communion Chant instead.",
+  };
+  const communionAntiphon = withProperOptions({
+    idPrefix: "communion-antiphon-option",
+    item: {
+      id: "communion-antiphon",
+      title: "Communion Antiphon",
+      posture: "Stand",
+      subgroup: "Communion Rite",
+      lines: [communionRubric],
+    },
+    leadingLines: [communionRubric],
+    optionLabel: (antiphon, index) =>
+      `Option ${index + 1} · ${antiphon.citation}`,
+    optionLines: (antiphon) => [
+      {
+        role: "all",
+        text: antiphon.text,
+        label: `Communion Antiphon · ${antiphon.citation}`,
+      },
+    ],
+    options: propers.communionAntiphons,
+    trailingLines: [],
+  });
+
+  return [
+    ...appointed.slice(0, communionIndex),
+    communionAntiphon,
+    ...appointed.slice(communionIndex),
+  ];
+}
+
+function MassPropersSourceNote({
+  propers,
+}: {
+  propers: MassCelebrationPropers;
+}) {
+  return (
+    <aside
+      aria-label="Source for the Mass propers"
+      className="mt-8 border-t border-[var(--line)] pt-4 text-xs leading-relaxed text-[var(--muted)]"
+    >
+      <p>
+        Proper texts from{" "}
+        <a
+          className="font-semibold text-[var(--foreground)] underline decoration-[var(--line)] underline-offset-4 hover:decoration-[color:var(--liturgical-accent)]"
+          href={propers.sourceUrl}
+          rel="noreferrer"
+          target="_blank"
+        >
+          {propers.sourceLabel}
+        </a>
+        .
+      </p>
+      <p className="mt-1">{propers.rightsNotice}</p>
+    </aside>
+  );
+}
+
 export function HolyMassCompanion({
   data,
   saturdayOverride,
@@ -675,6 +962,19 @@ function MassExperience({
     celebration.readingSets.find((readingSet) => readingSet.id === readingSetId) ??
     celebration.readingSets[0] ??
     null;
+  const selectedPropers = getMassPropersForReadingSet({
+    fallback: celebration.propers,
+    propersByReadingSetId: celebration.propersByReadingSetId,
+    readingSetId: selectedReadingSet?.id ?? null,
+  });
+  const introductoryItems = useMemo(
+    () => addIntroductoryPropers(MASS_ORDER_SECTIONS[0].items, selectedPropers),
+    [selectedPropers],
+  );
+  const eucharisticItems = useMemo(
+    () => addEucharisticPropers(MASS_ORDER_SECTIONS[2].items, selectedPropers),
+    [selectedPropers],
+  );
   const selectedReadingOption = selectedReadingSet
     ? celebration.options.find(
         (option) => option.id === selectedReadingSet.douayOptionId,
@@ -832,7 +1132,7 @@ function MassExperience({
         >
           <IntroductoryRites
             gloria={celebration.profile.requirements.gloria}
-            items={MASS_ORDER_SECTIONS[0].items}
+            items={introductoryItems}
             riteKind={celebration.riteKind}
             sprinklingRite={celebration.profile.requirements.sprinklingRite}
           />
@@ -877,9 +1177,12 @@ function MassExperience({
           <OrderItems
             followOrderBase={300_000}
             idPrefix="eucharist"
-            items={MASS_ORDER_SECTIONS[2].items}
+            items={eucharisticItems}
             title="Sacrifice and Sacred Banquet"
           />
+          {selectedPropers ? (
+            <MassPropersSourceNote propers={selectedPropers} />
+          ) : null}
         </RiteSection>
 
         <RiteSection
@@ -1332,7 +1635,9 @@ function LiturgyOfTheWord({
               createMassFollowTargets({
                 idPrefix: `usccb-${candidateSet.id}-${section.id}-line-${lineIndex}`,
                 label: `${candidateSet.label} · ${section.title}`,
+                mode: isUsccbResponseLine(line) ? "response" : "prose",
                 orderBase: 100_000 + sectionIndex * 10_000 + 100 + lineIndex * 100,
+                previousText: section.lines[lineIndex - 1] ?? null,
                 reveal: revealSet,
                 text: line,
               }).map((target) => ({
@@ -1843,6 +2148,7 @@ function UsccbReadingCard({
                 enabled={followEnabled}
                 idPrefix={`${followIdPrefix}-gospel-greeting-people`}
                 label={section.title}
+                mode="response"
                 orderBase={followOrderBase + 10}
                 reveal={revealReading}
                 text="And with your spirit."
@@ -1863,6 +2169,7 @@ function UsccbReadingCard({
                 enabled={followEnabled}
                 idPrefix={`${followIdPrefix}-gospel-acclamation`}
                 label={section.title}
+                mode="response"
                 orderBase={followOrderBase + 30}
                 reveal={revealReading}
                 text="Glory to you, O Lord."
@@ -1905,7 +2212,9 @@ function UsccbReadingCard({
                 enabled={followEnabled}
                 idPrefix={`${followIdPrefix}-line-${index}`}
                 label={section.title}
+                mode={isUsccbResponseLine(line) ? "response" : "prose"}
                 orderBase={followOrderBase + 100 + index * 100}
+                previousText={section.lines[index - 1] ?? null}
                 reveal={revealReading}
                 text={line}
               />
@@ -1934,6 +2243,7 @@ function UsccbReadingCard({
                 enabled={followEnabled}
                 idPrefix={`${followIdPrefix}-conclusion-people`}
                 label={section.title}
+                mode="response"
                 orderBase={followOrderBase + 9_010}
                 reveal={revealReading}
                 text={after}
@@ -2033,6 +2343,11 @@ function MassReadings({
                 100 +
                 segmentIndex * 5_000 +
                 verseIndex * 100,
+              previousText: getPreviousVerseText(
+                choice.segments,
+                segmentIndex,
+                verseIndex,
+              ),
               reveal: revealGospel,
               text: verse.text,
             }).map((target) => ({
@@ -2244,6 +2559,7 @@ function ReadingCard({
                 enabled={followEnabled}
                 idPrefix={`${followIdPrefix}-gospel-greeting-people`}
                 label={selection.title}
+                mode="response"
                 orderBase={followOrderBase + 10}
                 reveal={revealReading}
                 text="And with your spirit."
@@ -2264,6 +2580,7 @@ function ReadingCard({
                 enabled={followEnabled}
                 idPrefix={`${followIdPrefix}-gospel-acclamation`}
                 label={selection.title}
+                mode="response"
                 orderBase={followOrderBase + 30}
                 reveal={revealReading}
                 text="Glory to you, O Lord."
@@ -2319,6 +2636,11 @@ function ReadingCard({
                         segmentIndex * 5_000 +
                         verseIndex * 100
                       }
+                      previousText={getPreviousVerseText(
+                        selection.segments,
+                        segmentIndex,
+                        verseIndex,
+                      )}
                       reveal={revealReading}
                       text={verse.text}
                     />
@@ -2350,6 +2672,7 @@ function ReadingCard({
                 enabled={followEnabled}
                 idPrefix={`${followIdPrefix}-conclusion-people`}
                 label={selection.title}
+                mode="response"
                 orderBase={followOrderBase + 19_010}
                 reveal={revealReading}
                 text={after}
@@ -2449,6 +2772,7 @@ function PsalmCard({
                 enabled={followEnabled}
                 idPrefix={`${followIdPrefix}-refrain-opening`}
                 label="Responsorial Psalm"
+                mode="response"
                 orderBase={followOrderBase}
                 reveal={revealReading}
                 text={refrain}
@@ -2479,6 +2803,11 @@ function PsalmCard({
                       segmentIndex * 5_000 +
                       verseIndex * 100
                     }
+                    previousText={getPreviousVerseText(
+                      psalm.segments,
+                      segmentIndex,
+                      verseIndex,
+                    )}
                     reveal={revealReading}
                     text={verse.text}
                   />
@@ -2491,6 +2820,7 @@ function PsalmCard({
                     enabled={followEnabled}
                     idPrefix={`${followIdPrefix}-segment-${segmentIndex}-refrain`}
                     label="Responsorial Psalm"
+                    mode="response"
                     orderBase={
                       followOrderBase + segmentIndex * 5_000 + 4_900
                     }
@@ -2558,14 +2888,18 @@ function MassFollowText({
   enabled = true,
   idPrefix,
   label,
+  mode = "prose",
   orderBase,
+  previousText,
   reveal,
   text,
 }: {
   enabled?: boolean;
   idPrefix: string;
   label: string;
+  mode?: MassSpeechCandidateMode;
   orderBase: number;
+  previousText?: string | null;
   reveal?: () => void;
   text: string;
 }) {
@@ -2575,11 +2909,22 @@ function MassFollowText({
         enabled,
         idPrefix,
         label,
+        mode,
         orderBase,
+        previousText,
         reveal,
         text,
       }),
-    [enabled, idPrefix, label, orderBase, reveal, text],
+    [
+      enabled,
+      idPrefix,
+      label,
+      mode,
+      orderBase,
+      previousText,
+      reveal,
+      text,
+    ],
   );
   useMassFollowTargets(targets);
   const { activeTargetId } = useMassFollowState();
@@ -2612,29 +2957,59 @@ function createMassFollowTargets({
   enabled = true,
   idPrefix,
   label,
+  mode = "prose",
   orderBase,
+  previousText,
   reveal,
   text,
 }: {
   enabled?: boolean;
   idPrefix: string;
   label: string;
+  mode?: MassSpeechCandidateMode;
   orderBase: number;
+  previousText?: string | null;
   reveal?: () => void;
   text: string;
 }): MassFollowTargetRegistration[] {
-  return splitMassSpeechText(text).map((chunk, index) => {
+  const chunks = splitMassSpeechText(text);
+
+  return chunks.map((chunk, index) => {
     const id = getMassFollowTargetId(idPrefix, index);
+    const bridge =
+      mode === "prose"
+        ? createMassSpeechBridgeText(
+            index > 0 ? chunks[index - 1] : previousText,
+            chunk,
+          )
+        : null;
     return {
       elementId: id,
       enabled,
       id,
       label,
+      matchTexts: bridge ? [bridge] : undefined,
+      mode,
       order: orderBase + index,
       reveal,
       text: chunk,
     };
   });
+}
+
+function isUsccbResponseLine(text: string) {
+  return /^\s*R\.(?:\s|$)/iu.test(text);
+}
+
+function getPreviousVerseText(
+  segments: HolyMassLoadedSelection["segments"],
+  segmentIndex: number,
+  verseIndex: number,
+) {
+  if (verseIndex > 0) {
+    return segments[segmentIndex]?.verses[verseIndex - 1]?.text ?? null;
+  }
+  return segments[segmentIndex - 1]?.verses.at(-1)?.text ?? null;
 }
 
 function createDouayOptionFollowTargets({
@@ -2659,6 +3034,11 @@ function createDouayOptionFollowTargets({
           idPrefix: `${idPrefix}-segment-${segmentIndex}-verse-${verse.number}`,
           label: selection.title,
           orderBase: orderBase + 100 + segmentIndex * 5_000 + verseIndex * 100,
+          previousText: getPreviousVerseText(
+            selection.segments,
+            segmentIndex,
+            verseIndex,
+          ),
           reveal,
           text: verse.text,
         }).map((target) => ({
@@ -2685,6 +3065,11 @@ function createDouayOptionFollowTargets({
             100 +
             segmentIndex * 5_000 +
             verseIndex * 100,
+          previousText: getPreviousVerseText(
+            option.responsorialPsalm.segments,
+            segmentIndex,
+            verseIndex,
+          ),
           reveal,
           text: verse.text,
         }).map((target) => ({

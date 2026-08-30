@@ -1,10 +1,16 @@
 const DEFAULT_MIN_WORDS = 8;
-const DEFAULT_MAX_WORDS = 20;
+const DEFAULT_MAX_WORDS = 12;
+const DEFAULT_BRIDGE_TAIL_WORDS = 4;
+const MAX_MATCH_WINDOW_WORDS =
+  DEFAULT_MAX_WORDS + DEFAULT_BRIDGE_TAIL_WORDS;
 const FORWARD_TARGET_WINDOW = 16;
+const MIN_PROSE_EVIDENCE_WORDS = 4;
 const MIN_GLOBAL_INFORMATIVE_WORDS = 5;
 const MIN_GLOBAL_SCORE = 0.75;
 const MIN_GLOBAL_WINNER_MARGIN = 0.15;
 const MIN_FORWARD_SCORE = 0.68;
+const MIN_GLOBAL_POSTING_OVERLAP = 2;
+const DISTINCTIVE_NGRAM_WORDS = 4;
 
 const UNINFORMATIVE_WORDS = new Set([
   "a",
@@ -60,17 +66,69 @@ const UNINFORMATIVE_WORDS = new Set([
   "your",
 ]);
 
+export type MassSpeechCandidateMode = "prose" | "response";
+
 export type MassSpeechCandidate = {
   id: string;
   order: number;
   text: string;
   label?: string;
+  /**
+   * Additional recognition phrases for this same visible target. The visible
+   * text is always included, so bridge text must never replace it.
+   */
+  matchTexts?: readonly string[];
+  /**
+   * Prose can be found in the bounded forward window or by distinctive global
+   * reacquisition. Responses can only match the immediate next target.
+   *
+   * Omitted mode defaults to prose for compatibility with existing callers.
+   */
+  mode?: MassSpeechCandidateMode;
+};
+
+export type MassSpeechRunnerUp = {
+  candidate: MassSpeechCandidate;
+  score: number;
 };
 
 export type MassSpeechMatch = {
   candidate: MassSpeechCandidate;
   score: number;
   scope: "forward" | "global";
+  runnerUp: MassSpeechRunnerUp | null;
+  margin: number;
+  matchedInformativeWords: number;
+  /**
+   * One means the immediate next distinct target order. Initial acquisition
+   * has no distance because there is no committed position yet.
+   */
+  orderDistance: number | null;
+};
+
+export type MassSpeechEvidenceState = {
+  acceptedFingerprint: string | null;
+  pending: {
+    count: number;
+    fingerprint: string;
+    observedAt: number;
+    targetKey: string;
+  } | null;
+};
+
+type AdvanceMassSpeechEvidenceInput = {
+  acceptImmediately: boolean;
+  confirmationWindowMs: number;
+  final: boolean;
+  fingerprint: string;
+  now: number;
+  state: MassSpeechEvidenceState;
+  targetKey: string;
+};
+
+export type MassSpeechEvidenceDecision = {
+  accepted: boolean;
+  state: MassSpeechEvidenceState;
 };
 
 type FindMassSpeechMatchInput = {
@@ -80,11 +138,139 @@ type FindMassSpeechMatchInput = {
   allowGlobal?: boolean;
 };
 
-type ScoredCandidate = {
+type FindPreparedMassSpeechMatchInput = {
+  transcript: string;
+  prepared: PreparedMassSpeechCandidates;
+  currentOrder?: number;
+  allowGlobal?: boolean;
+};
+
+type PreparedVariation = {
+  normalized: string;
+  tokens: readonly string[];
+  ngrams: ReadonlySet<string>;
+};
+
+type PreparedCandidate = {
   candidate: MassSpeechCandidate;
   index: number;
-  score: number;
+  mode: MassSpeechCandidateMode;
+  variations: readonly PreparedVariation[];
 };
+
+export type PreparedMassSpeechCandidates = {
+  readonly candidates: readonly MassSpeechCandidate[];
+  readonly preparedCandidates: readonly PreparedCandidate[];
+  readonly distinctOrders: readonly number[];
+  readonly postings: ReadonlyMap<string, readonly number[]>;
+  readonly tokenDocumentFrequency: ReadonlyMap<string, number>;
+  readonly ngramDocumentFrequency: ReadonlyMap<string, number>;
+};
+
+type ScoreEvidence = {
+  candidateWindow: readonly string[];
+  matchedInformativeWords: number;
+  score: number;
+  transcriptWindow: readonly string[];
+  variation: PreparedVariation;
+};
+
+type ScoredCandidate = ScoreEvidence & {
+  preparedCandidate: PreparedCandidate;
+};
+
+type AlignmentCell = {
+  informativeMatches: number;
+  matches: number;
+  rawScore: number;
+  startCandidateIndex: number;
+  startTranscriptIndex: number;
+};
+
+const preparedCandidateCache = new WeakMap<
+  readonly MassSpeechCandidate[],
+  PreparedMassSpeechCandidates
+>();
+
+export function createMassSpeechEvidenceState(): MassSpeechEvidenceState {
+  return {
+    acceptedFingerprint: null,
+    pending: null,
+  };
+}
+
+/**
+ * Applies the streaming-evidence rules without touching browser state. Repeated
+ * copies of one interim hypothesis never count twice, a correction to another
+ * target starts fresh, and accepted evidence cannot advance another target.
+ */
+export function advanceMassSpeechEvidence({
+  acceptImmediately,
+  confirmationWindowMs,
+  final,
+  fingerprint,
+  now,
+  state,
+  targetKey,
+}: AdvanceMassSpeechEvidenceInput): MassSpeechEvidenceDecision {
+  if (
+    !fingerprint ||
+    !Number.isFinite(now) ||
+    confirmationWindowMs < 0 ||
+    state.acceptedFingerprint === fingerprint
+  ) {
+    return { accepted: false, state };
+  }
+
+  if (final || acceptImmediately) {
+    return {
+      accepted: true,
+      state: {
+        acceptedFingerprint: fingerprint,
+        pending: null,
+      },
+    };
+  }
+
+  const pending = state.pending;
+  const pendingIsFresh =
+    pending !== null &&
+    now - pending.observedAt <= confirmationWindowMs;
+  if (
+    pendingIsFresh &&
+    pending.targetKey === targetKey &&
+    pending.fingerprint === fingerprint
+  ) {
+    return { accepted: false, state };
+  }
+
+  const count =
+    pendingIsFresh && pending.targetKey === targetKey
+      ? pending.count + 1
+      : 1;
+  if (count >= 2) {
+    return {
+      accepted: true,
+      state: {
+        acceptedFingerprint: fingerprint,
+        pending: null,
+      },
+    };
+  }
+
+  return {
+    accepted: false,
+    state: {
+      acceptedFingerprint: state.acceptedFingerprint,
+      pending: {
+        count,
+        fingerprint,
+        observedAt: now,
+        targetKey,
+      },
+    },
+  };
+}
 
 /**
  * Produces the comparison form used by Mass speech following. The normalized
@@ -106,6 +292,9 @@ export function normalizeMassSpeech(text: string): string {
  * Splits long spoken copy into balanced, non-overlapping display passages.
  * Every passage is an exact slice of the input, so joining the result always
  * reproduces the original punctuation, casing, and whitespace.
+ *
+ * Eight-to-twelve-word chunks are preferred. A thirteen-to-fifteen-word input
+ * stays whole because splitting it would create undersized fragments.
  */
 export function splitMassSpeechText(
   text: string,
@@ -130,7 +319,12 @@ export function splitMassSpeechText(
     return [text];
   }
 
-  const passageCount = Math.ceil(wordStarts.length / maxWords);
+  const minimumPassageCount = Math.ceil(wordStarts.length / maxWords);
+  const maximumPassageCount = Math.floor(wordStarts.length / minWords);
+  const passageCount =
+    minimumPassageCount <= maximumPassageCount
+      ? minimumPassageCount
+      : Math.max(1, maximumPassageCount);
   const basePassageWords = Math.floor(wordStarts.length / passageCount);
   const extraWords = wordStarts.length % passageCount;
   const passages: string[] = [];
@@ -151,56 +345,160 @@ export function splitMassSpeechText(
 }
 
 /**
- * Finds the best current or forward Mass target for a rolling recognition
- * transcript. With no current order, global acquisition is enabled by default.
- * With a current order, global recovery is opt-in and can never move backward.
+ * Creates a matcher-only phrase that overlaps the previous prose tail with the
+ * current visible chunk. This lets a rolling transcript cross a chunk boundary
+ * without changing visible wording, element IDs, or target order.
  */
-export function findMassSpeechMatch({
+export function createMassSpeechBridgeText(
+  previousText: string | null | undefined,
+  currentText: string,
+  previousTailWords = DEFAULT_BRIDGE_TAIL_WORDS,
+): string | null {
+  if (!Number.isInteger(previousTailWords) || previousTailWords < 1) {
+    throw new RangeError(
+      "Mass speech bridge tails must contain a positive integer number of words",
+    );
+  }
+
+  const previousTokens = tokenize(previousText ?? "");
+  const normalizedCurrent = normalizeMassSpeech(currentText);
+  if (previousTokens.length === 0 || normalizedCurrent.length === 0) {
+    return null;
+  }
+
+  return [
+    ...previousTokens.slice(-previousTailWords),
+    normalizedCurrent,
+  ].join(" ");
+}
+
+/**
+ * Prepares immutable Mass targets once per registry rebuild. Recognition events
+ * can then reuse tokens, postings, order groups, and distinctiveness metadata.
+ */
+export function prepareMassSpeechCandidates(
+  candidates: readonly MassSpeechCandidate[],
+): PreparedMassSpeechCandidates {
+  const preparedCandidates: PreparedCandidate[] = candidates.map(
+    (candidate, index) => {
+      const normalizedVariations = new Map<string, PreparedVariation>();
+      for (const matchText of [candidate.text, ...(candidate.matchTexts ?? [])]) {
+        const normalized = normalizeMassSpeech(matchText);
+        if (!normalized || normalizedVariations.has(normalized)) {
+          continue;
+        }
+        const tokens = normalized.split(" ");
+        normalizedVariations.set(normalized, {
+          ngrams: new Set(createNgrams(tokens, DISTINCTIVE_NGRAM_WORDS)),
+          normalized,
+          tokens,
+        });
+      }
+
+      return {
+        candidate,
+        index,
+        mode: candidate.mode ?? "prose",
+        variations: Array.from(normalizedVariations.values()),
+      };
+    },
+  );
+
+  const tokenDocumentFrequency = new Map<string, number>();
+  const ngramDocumentFrequency = new Map<string, number>();
+  const mutablePostings = new Map<string, Set<number>>();
+
+  preparedCandidates.forEach((preparedCandidate, candidateIndex) => {
+    const candidateTokens = new Set<string>();
+    const candidateNgrams = new Set<string>();
+    for (const variation of preparedCandidate.variations) {
+      variation.tokens.forEach((token) => {
+        if (isInformativeWord(token)) {
+          candidateTokens.add(token);
+        }
+      });
+      variation.ngrams.forEach((ngram) => candidateNgrams.add(ngram));
+    }
+
+    candidateTokens.forEach((token) => {
+      tokenDocumentFrequency.set(
+        token,
+        (tokenDocumentFrequency.get(token) ?? 0) + 1,
+      );
+      const posting = mutablePostings.get(token) ?? new Set<number>();
+      posting.add(candidateIndex);
+      mutablePostings.set(token, posting);
+    });
+    candidateNgrams.forEach((ngram) => {
+      ngramDocumentFrequency.set(
+        ngram,
+        (ngramDocumentFrequency.get(ngram) ?? 0) + 1,
+      );
+    });
+  });
+
+  const postings = new Map<string, readonly number[]>();
+  mutablePostings.forEach((candidateIndexes, token) => {
+    postings.set(token, Array.from(candidateIndexes));
+  });
+
+  return {
+    candidates,
+    distinctOrders: Array.from(
+      new Set(candidates.map((candidate) => candidate.order)),
+    ).sort((left, right) => left - right),
+    ngramDocumentFrequency,
+    postings,
+    preparedCandidates,
+    tokenDocumentFrequency,
+  };
+}
+
+/**
+ * Finds a match using a pretokenized target index. Once a position has been
+ * acquired, every result is strictly later than the committed order.
+ */
+export function findPreparedMassSpeechMatch({
   transcript,
-  candidates,
+  prepared,
   currentOrder,
   allowGlobal = currentOrder === undefined,
-}: FindMassSpeechMatchInput): MassSpeechMatch | null {
+}: FindPreparedMassSpeechMatchInput): MassSpeechMatch | null {
   const transcriptTokens = tokenize(transcript);
-  if (transcriptTokens.length === 0 || candidates.length === 0) {
+  if (
+    transcriptTokens.length === 0 ||
+    prepared.preparedCandidates.length === 0
+  ) {
     return null;
   }
 
   if (currentOrder !== undefined) {
-    const futureOrders = Array.from(
-      new Set(
-        candidates
-          .filter((candidate) => candidate.order > currentOrder)
-          .map((candidate) => candidate.order),
-      ),
-    ).sort((left, right) => left - right);
-    const immediateNextOrder = futureOrders[0];
-    const forwardOrderSequence = [
-      currentOrder,
-      ...futureOrders.slice(0, FORWARD_TARGET_WINDOW),
-    ];
+    const futureOrders = prepared.distinctOrders.filter(
+      (order) => order > currentOrder,
+    );
+    const forwardOrderSequence = futureOrders.slice(0, FORWARD_TARGET_WINDOW);
+    const immediateNextOrder = forwardOrderSequence[0];
     const forwardOrders = new Set(forwardOrderSequence);
     const forwardOrderRanks = new Map(
-      forwardOrderSequence.map((order, index) => [order, index]),
+      forwardOrderSequence.map((order, index) => [order, index + 1]),
     );
-    const forward = rankCandidates({
-      candidates,
+    const forwardCandidateIndexes = prepared.preparedCandidates
+      .filter(
+        (entry) =>
+          forwardOrders.has(entry.candidate.order) &&
+          (entry.mode === "prose" ||
+            entry.candidate.order === immediateNextOrder),
+      )
+      .map((entry) => entry.index);
+    const forward = rankPreparedCandidates({
+      candidateIndexes: forwardCandidateIndexes,
       orderRanks: forwardOrderRanks,
+      prepared,
       transcriptTokens,
-      predicate: (candidate, candidateTokens) => {
-        if (!forwardOrders.has(candidate.order)) {
-          return false;
-        }
-
-        return (
-          !isShortResponse(candidateTokens) ||
-          candidate.order === immediateNextOrder
-        );
-      },
     });
     const bestForward = forward[0];
     if (bestForward && bestForward.score >= MIN_FORWARD_SCORE) {
-      return toMatch(bestForward, "forward");
+      return toMatch(bestForward, forward, "forward", forwardOrderRanks);
     }
   }
 
@@ -211,21 +509,27 @@ export function findMassSpeechMatch({
     return null;
   }
 
-  const global = rankCandidates({
-    candidates,
+  const globalCandidateIndexes = getGlobalCandidateIndexes({
+    currentOrder,
+    prepared,
     transcriptTokens,
-    predicate: (candidate, candidateTokens) =>
-      !isShortResponse(candidateTokens) &&
-      (currentOrder === undefined || candidate.order >= currentOrder),
+  });
+  const global = rankPreparedCandidates({
+    candidateIndexes: globalCandidateIndexes,
+    prepared,
+    transcriptTokens,
   });
   const bestGlobal = global[0];
-  if (!bestGlobal || bestGlobal.score < MIN_GLOBAL_SCORE) {
+  if (
+    !bestGlobal ||
+    bestGlobal.score < MIN_GLOBAL_SCORE ||
+    bestGlobal.matchedInformativeWords < MIN_GLOBAL_INFORMATIVE_WORDS ||
+    !isDistinctiveGlobalMatch(bestGlobal, prepared)
+  ) {
     return null;
   }
 
-  const runnerUp = global.find(
-    (entry) => entry.candidate.id !== bestGlobal.candidate.id,
-  );
+  const runnerUp = getRunnerUp(bestGlobal, global);
   if (
     runnerUp &&
     bestGlobal.score - runnerUp.score < MIN_GLOBAL_WINNER_MARGIN
@@ -233,41 +537,97 @@ export function findMassSpeechMatch({
     return null;
   }
 
-  return toMatch(bestGlobal, "global");
+  return toMatch(bestGlobal, global, "global", undefined, currentOrder);
 }
 
-function rankCandidates({
+/**
+ * Compatibility wrapper for existing callers. Immutable candidate arrays are
+ * cached, while new code can prepare explicitly at target-registration time.
+ */
+export function findMassSpeechMatch({
+  transcript,
   candidates,
-  orderRanks,
-  predicate,
+  currentOrder,
+  allowGlobal = currentOrder === undefined,
+}: FindMassSpeechMatchInput): MassSpeechMatch | null {
+  let prepared = preparedCandidateCache.get(candidates);
+  if (!prepared) {
+    prepared = prepareMassSpeechCandidates(candidates);
+    preparedCandidateCache.set(candidates, prepared);
+  }
+
+  return findPreparedMassSpeechMatch({
+    allowGlobal,
+    currentOrder,
+    prepared,
+    transcript,
+  });
+}
+
+function getGlobalCandidateIndexes({
+  currentOrder,
+  prepared,
   transcriptTokens,
 }: {
-  candidates: readonly MassSpeechCandidate[];
+  currentOrder: number | undefined;
+  prepared: PreparedMassSpeechCandidates;
+  transcriptTokens: readonly string[];
+}) {
+  const overlapCounts = new Map<number, number>();
+  const informativeTranscriptTokens = new Set(
+    transcriptTokens.filter(isInformativeWord),
+  );
+
+  informativeTranscriptTokens.forEach((token) => {
+    for (const candidateIndex of prepared.postings.get(token) ?? []) {
+      overlapCounts.set(
+        candidateIndex,
+        (overlapCounts.get(candidateIndex) ?? 0) + 1,
+      );
+    }
+  });
+
+  return Array.from(overlapCounts.entries())
+    .filter(([candidateIndex, overlap]) => {
+      const entry = prepared.preparedCandidates[candidateIndex];
+      return Boolean(
+        entry &&
+          overlap >= MIN_GLOBAL_POSTING_OVERLAP &&
+          entry.mode === "prose" &&
+          (currentOrder === undefined ||
+            entry.candidate.order > currentOrder),
+      );
+    })
+    .map(([candidateIndex]) => candidateIndex);
+}
+
+function rankPreparedCandidates({
+  candidateIndexes,
+  orderRanks,
+  prepared,
+  transcriptTokens,
+}: {
+  candidateIndexes: readonly number[];
   orderRanks?: ReadonlyMap<number, number>;
-  predicate: (
-    candidate: MassSpeechCandidate,
-    candidateTokens: readonly string[],
-  ) => boolean;
+  prepared: PreparedMassSpeechCandidates;
   transcriptTokens: readonly string[];
 }) {
   const scored: ScoredCandidate[] = [];
 
-  candidates.forEach((candidate, index) => {
-    const candidateTokens = tokenize(candidate.text);
-    if (
-      candidateTokens.length === 0 ||
-      !predicate(candidate, candidateTokens)
-    ) {
-      return;
+  for (const candidateIndex of candidateIndexes) {
+    const preparedCandidate = prepared.preparedCandidates[candidateIndex];
+    if (!preparedCandidate || preparedCandidate.variations.length === 0) {
+      continue;
     }
 
-    const score = isShortResponse(candidateTokens)
-      ? scoreShortResponse(transcriptTokens, candidateTokens)
-      : scoreOrderedTokens(transcriptTokens, candidateTokens);
-    if (score > 0) {
-      scored.push({ candidate, index, score });
+    const evidence =
+      preparedCandidate.mode === "response"
+        ? scoreResponse(transcriptTokens, preparedCandidate.variations)
+        : scoreProse(transcriptTokens, preparedCandidate.variations);
+    if (evidence && evidence.score > 0) {
+      scored.push({ ...evidence, preparedCandidate });
     }
-  });
+  }
 
   return scored.sort((left, right) => {
     const scoreDifference = right.score - left.score;
@@ -275,121 +635,359 @@ function rankCandidates({
       return scoreDifference;
     }
 
+    if (left.matchedInformativeWords !== right.matchedInformativeWords) {
+      return (
+        right.matchedInformativeWords - left.matchedInformativeWords
+      );
+    }
+
     if (orderRanks) {
       const leftRank =
-        orderRanks.get(left.candidate.order) ?? Number.MAX_SAFE_INTEGER;
+        orderRanks.get(left.preparedCandidate.candidate.order) ??
+        Number.MAX_SAFE_INTEGER;
       const rightRank =
-        orderRanks.get(right.candidate.order) ?? Number.MAX_SAFE_INTEGER;
+        orderRanks.get(right.preparedCandidate.candidate.order) ??
+        Number.MAX_SAFE_INTEGER;
       if (leftRank !== rightRank) {
         return leftRank - rightRank;
       }
     }
 
-    if (left.candidate.order !== right.candidate.order) {
-      return left.candidate.order - right.candidate.order;
+    if (
+      left.preparedCandidate.candidate.order !==
+      right.preparedCandidate.candidate.order
+    ) {
+      return (
+        left.preparedCandidate.candidate.order -
+        right.preparedCandidate.candidate.order
+      );
     }
-    return left.index - right.index;
+    return left.preparedCandidate.index - right.preparedCandidate.index;
   });
 }
 
-function scoreShortResponse(
+function scoreResponse(
   transcriptTokens: readonly string[],
-  candidateTokens: readonly string[],
-) {
-  if (transcriptTokens.length < candidateTokens.length) {
-    return 0;
-  }
+  variations: readonly PreparedVariation[],
+): ScoreEvidence | null {
+  let best: ScoreEvidence | null = null;
+  for (const variation of variations) {
+    const candidateTokens = variation.tokens;
+    if (
+      candidateTokens.length === 0 ||
+      transcriptTokens.length < candidateTokens.length
+    ) {
+      continue;
+    }
 
-  const offset = transcriptTokens.length - candidateTokens.length;
-  return candidateTokens.every(
-    (token, index) => transcriptTokens[offset + index] === token,
-  )
-    ? 1
-    : 0;
+    const offset = transcriptTokens.length - candidateTokens.length;
+    if (
+      !candidateTokens.every(
+        (token, index) => transcriptTokens[offset + index] === token,
+      )
+    ) {
+      continue;
+    }
+
+    const evidence: ScoreEvidence = {
+      candidateWindow: candidateTokens,
+      matchedInformativeWords: countInformativeWords(candidateTokens),
+      score: 1,
+      transcriptWindow: transcriptTokens.slice(offset),
+      variation,
+    };
+    if (!best || isBetterEvidence(evidence, best)) {
+      best = evidence;
+    }
+  }
+  return best;
+}
+
+function scoreProse(
+  transcriptTokens: readonly string[],
+  variations: readonly PreparedVariation[],
+): ScoreEvidence | null {
+  let best: ScoreEvidence | null = null;
+  for (const variation of variations) {
+    const evidence = scoreOrderedTokens(transcriptTokens, variation);
+    if (evidence && (!best || isBetterEvidence(evidence, best))) {
+      best = evidence;
+    }
+  }
+  return best;
 }
 
 function scoreOrderedTokens(
   transcriptTokens: readonly string[],
-  candidateTokens: readonly string[],
-) {
-  const maximumTranscriptWindow = Math.min(
-    DEFAULT_MAX_WORDS,
-    transcriptTokens.length,
-  );
-  if (maximumTranscriptWindow < MIN_GLOBAL_INFORMATIVE_WORDS) {
-    return 0;
-  }
-
-  let bestScore = 0;
-  for (
-    let transcriptLength = MIN_GLOBAL_INFORMATIVE_WORDS;
-    transcriptLength <= maximumTranscriptWindow;
-    transcriptLength += 1
+  variation: PreparedVariation,
+): ScoreEvidence | null {
+  const candidateTokens = variation.tokens;
+  const transcriptTail = transcriptTokens.slice(-MAX_MATCH_WINDOW_WORDS);
+  if (
+    transcriptTail.length < MIN_PROSE_EVIDENCE_WORDS ||
+    candidateTokens.length < MIN_PROSE_EVIDENCE_WORDS
   ) {
-    const transcriptWindow = transcriptTokens.slice(-transcriptLength);
-    const minimumCandidateLength = Math.max(
-      MIN_GLOBAL_INFORMATIVE_WORDS,
-      transcriptLength - 2,
-    );
-    const maximumCandidateLength = Math.min(
-      DEFAULT_MAX_WORDS,
-      candidateTokens.length,
-      transcriptLength + 2,
-    );
-
-    for (
-      let candidateLength = minimumCandidateLength;
-      candidateLength <= maximumCandidateLength;
-      candidateLength += 1
-    ) {
-      for (
-        let candidateStart = 0;
-        candidateStart + candidateLength <= candidateTokens.length;
-        candidateStart += 1
-      ) {
-        const candidateWindow = candidateTokens.slice(
-          candidateStart,
-          candidateStart + candidateLength,
-        );
-        const distance = tokenEditDistance(
-          transcriptWindow,
-          candidateWindow,
-        );
-        const similarity =
-          1 - distance / Math.max(transcriptLength, candidateLength);
-        const evidenceWeight =
-          0.85 + 0.15 * Math.min(1, (transcriptLength - 5) / 5);
-        bestScore = Math.max(bestScore, similarity * evidenceWeight);
-      }
-    }
+    return null;
   }
 
-  return bestScore;
-}
+  let previous = Array<AlignmentCell | null>(
+    candidateTokens.length + 1,
+  ).fill(null);
 
-function tokenEditDistance(
-  left: readonly string[],
-  right: readonly string[],
-) {
-  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (
+    let transcriptIndex = 0;
+    transcriptIndex < transcriptTail.length;
+    transcriptIndex += 1
+  ) {
+    const current = Array<AlignmentCell | null>(
+      candidateTokens.length + 1,
+    ).fill(null);
+    for (
+      let candidateIndex = 0;
+      candidateIndex < candidateTokens.length;
+      candidateIndex += 1
+    ) {
+      const transcriptToken = transcriptTail[transcriptIndex];
+      const candidateToken = candidateTokens[candidateIndex];
+      const matches = transcriptToken === candidateToken;
+      const options: AlignmentCell[] = [];
 
-  for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
-    const current = [leftIndex + 1];
-    for (let rightIndex = 0; rightIndex < right.length; rightIndex += 1) {
-      const substitutionCost =
-        left[leftIndex] === right[rightIndex] ? 0 : 1;
-      current.push(
-        Math.min(
-          current[rightIndex] + 1,
-          previous[rightIndex + 1] + 1,
-          previous[rightIndex] + substitutionCost,
-        ),
-      );
+      if (matches) {
+        options.push({
+          informativeMatches: isInformativeWord(transcriptToken ?? "") ? 1 : 0,
+          matches: 1,
+          rawScore: 2,
+          startCandidateIndex: candidateIndex,
+          startTranscriptIndex: transcriptIndex,
+        });
+      }
+
+      const diagonal = previous[candidateIndex];
+      if (diagonal) {
+        options.push(
+          extendAlignmentCell(
+            diagonal,
+            matches ? 2 : -1,
+            matches,
+            transcriptToken ?? "",
+          ),
+        );
+      }
+      const transcriptGap = previous[candidateIndex + 1];
+      if (transcriptGap) {
+        options.push(
+          extendAlignmentCell(transcriptGap, -1, false, ""),
+        );
+      }
+      const candidateGap = current[candidateIndex];
+      if (candidateGap) {
+        options.push(
+          extendAlignmentCell(candidateGap, -1, false, ""),
+        );
+      }
+
+      current[candidateIndex + 1] =
+        options
+          .filter((option) => option.rawScore > 0)
+          .sort(compareAlignmentCells)[0] ?? null;
     }
     previous = current;
   }
 
-  return previous[right.length];
+  let best: ScoreEvidence | null = null;
+  previous.forEach((cell, cellIndex) => {
+    if (!cell || cellIndex === 0) {
+      return;
+    }
+    const candidateEndIndex = cellIndex - 1;
+    const transcriptLength =
+      transcriptTail.length - cell.startTranscriptIndex;
+    const candidateLength =
+      candidateEndIndex - cell.startCandidateIndex + 1;
+    if (
+      transcriptLength < MIN_PROSE_EVIDENCE_WORDS ||
+      candidateLength < MIN_PROSE_EVIDENCE_WORDS
+    ) {
+      return;
+    }
+
+    const similarity =
+      cell.matches / Math.max(transcriptLength, candidateLength);
+    const evidenceWeight =
+      0.82 +
+      0.18 *
+        Math.min(
+          1,
+          (transcriptLength - MIN_PROSE_EVIDENCE_WORDS) / 6,
+        );
+    const evidence: ScoreEvidence = {
+      candidateWindow: candidateTokens.slice(
+        cell.startCandidateIndex,
+        candidateEndIndex + 1,
+      ),
+      matchedInformativeWords: cell.informativeMatches,
+      score: similarity * evidenceWeight,
+      transcriptWindow: transcriptTail.slice(cell.startTranscriptIndex),
+      variation,
+    };
+    if (!best || isBetterEvidence(evidence, best)) {
+      best = evidence;
+    }
+  });
+
+  return best;
+}
+
+function extendAlignmentCell(
+  cell: AlignmentCell,
+  rawScoreDelta: number,
+  matched: boolean,
+  transcriptToken: string,
+): AlignmentCell {
+  return {
+    informativeMatches:
+      cell.informativeMatches +
+      (matched && isInformativeWord(transcriptToken) ? 1 : 0),
+    matches: cell.matches + (matched ? 1 : 0),
+    rawScore: cell.rawScore + rawScoreDelta,
+    startCandidateIndex: cell.startCandidateIndex,
+    startTranscriptIndex: cell.startTranscriptIndex,
+  };
+}
+
+function compareAlignmentCells(left: AlignmentCell, right: AlignmentCell) {
+  if (left.rawScore !== right.rawScore) {
+    return right.rawScore - left.rawScore;
+  }
+  if (left.matches !== right.matches) {
+    return right.matches - left.matches;
+  }
+  if (left.informativeMatches !== right.informativeMatches) {
+    return right.informativeMatches - left.informativeMatches;
+  }
+  if (left.startTranscriptIndex !== right.startTranscriptIndex) {
+    return right.startTranscriptIndex - left.startTranscriptIndex;
+  }
+  return right.startCandidateIndex - left.startCandidateIndex;
+}
+
+function isBetterEvidence(left: ScoreEvidence, right: ScoreEvidence) {
+  if (Math.abs(left.score - right.score) > Number.EPSILON) {
+    return left.score > right.score;
+  }
+  if (left.matchedInformativeWords !== right.matchedInformativeWords) {
+    return left.matchedInformativeWords > right.matchedInformativeWords;
+  }
+  return left.transcriptWindow.length > right.transcriptWindow.length;
+}
+
+function isDistinctiveGlobalMatch(
+  scored: ScoredCandidate,
+  prepared: PreparedMassSpeechCandidates,
+) {
+  const transcriptNgrams = createNgrams(
+    scored.transcriptWindow,
+    DISTINCTIVE_NGRAM_WORDS,
+  );
+  if (
+    transcriptNgrams.some(
+      (ngram) =>
+        scored.variation.ngrams.has(ngram) &&
+        prepared.ngramDocumentFrequency.get(ngram) === 1,
+    )
+  ) {
+    return true;
+  }
+
+  const rareDocumentFrequency = Math.max(
+    1,
+    Math.floor(prepared.preparedCandidates.length * 0.1),
+  );
+  const candidateTokens = new Set(scored.candidateWindow);
+  const rareSharedTokens = new Set(
+    scored.transcriptWindow.filter(
+      (token) =>
+        isInformativeWord(token) &&
+        candidateTokens.has(token) &&
+        (prepared.tokenDocumentFrequency.get(token) ?? 0) <=
+          rareDocumentFrequency,
+    ),
+  );
+  return rareSharedTokens.size >= 2;
+}
+
+function getRunnerUp(
+  best: ScoredCandidate,
+  ranked: readonly ScoredCandidate[],
+) {
+  return (
+    ranked.find(
+      (entry) =>
+        entry.preparedCandidate.candidate.id !==
+        best.preparedCandidate.candidate.id,
+    ) ?? null
+  );
+}
+
+function toMatch(
+  best: ScoredCandidate,
+  ranked: readonly ScoredCandidate[],
+  scope: MassSpeechMatch["scope"],
+  orderRanks?: ReadonlyMap<number, number>,
+  currentOrder?: number,
+): MassSpeechMatch {
+  const runnerUp = getRunnerUp(best, ranked);
+  const runnerUpScore = runnerUp ? roundScore(runnerUp.score) : null;
+  const orderDistance =
+    orderRanks?.get(best.preparedCandidate.candidate.order) ??
+    (currentOrder === undefined
+      ? null
+      : getFutureOrderDistance(
+          ranked,
+          currentOrder,
+          best.preparedCandidate.candidate.order,
+        ));
+
+  return {
+    candidate: best.preparedCandidate.candidate,
+    margin: roundScore(
+      runnerUp ? best.score - runnerUp.score : best.score,
+    ),
+    matchedInformativeWords: best.matchedInformativeWords,
+    orderDistance,
+    runnerUp: runnerUp
+      ? {
+          candidate: runnerUp.preparedCandidate.candidate,
+          score: runnerUpScore ?? 0,
+        }
+      : null,
+    scope,
+    score: roundScore(best.score),
+  };
+}
+
+function getFutureOrderDistance(
+  ranked: readonly ScoredCandidate[],
+  currentOrder: number,
+  targetOrder: number,
+) {
+  const orders = Array.from(
+    new Set(
+      ranked
+        .map((entry) => entry.preparedCandidate.candidate.order)
+        .filter((order) => order > currentOrder),
+    ),
+  ).sort((left, right) => left - right);
+  const index = orders.indexOf(targetOrder);
+  return index >= 0 ? index + 1 : null;
+}
+
+function createNgrams(words: readonly string[], length: number) {
+  const ngrams: string[] = [];
+  for (let index = 0; index + length <= words.length; index += 1) {
+    ngrams.push(words.slice(index, index + length).join(" "));
+  }
+  return ngrams;
 }
 
 function tokenize(text: string) {
@@ -399,26 +997,17 @@ function tokenize(text: string) {
 
 function countInformativeWords(words: readonly string[]) {
   return words.reduce(
-    (count, word) =>
-      count +
-      (word.length > 1 && !UNINFORMATIVE_WORDS.has(word) ? 1 : 0),
+    (count, word) => count + (isInformativeWord(word) ? 1 : 0),
     0,
   );
 }
 
-function isShortResponse(words: readonly string[]) {
-  return countInformativeWords(words) < MIN_GLOBAL_INFORMATIVE_WORDS;
+function isInformativeWord(word: string) {
+  return word.length > 1 && !UNINFORMATIVE_WORDS.has(word);
 }
 
-function toMatch(
-  scored: ScoredCandidate,
-  scope: MassSpeechMatch["scope"],
-): MassSpeechMatch {
-  return {
-    candidate: scored.candidate,
-    score: Number(scored.score.toFixed(4)),
-    scope,
-  };
+function roundScore(score: number) {
+  return Number(score.toFixed(4));
 }
 
 function assertWordBounds(minWords: number, maxWords: number) {

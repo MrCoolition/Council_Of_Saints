@@ -20,16 +20,30 @@ import {
   type ReactNode,
 } from "react";
 import {
-  findMassSpeechMatch,
+  advanceMassSpeechEvidence,
+  createMassSpeechEvidenceState,
+  findPreparedMassSpeechMatch,
+  normalizeMassSpeech,
+  prepareMassSpeechCandidates,
   type MassSpeechCandidate,
+  type MassSpeechMatch,
+  type MassSpeechEvidenceState,
+  type PreparedMassSpeechCandidates,
 } from "@/lib/mass-speech-following";
 
 const MAX_ROLLING_WORDS = 24;
 const MAX_CONSECUTIVE_RESTARTS = 3;
 const GLOBAL_REACQUISITION_DELAY_MS = 15_000;
 const INTERIM_CONFIRMATION_WINDOW_MS = 5_000;
+const IMMEDIATE_INTERIM_MIN_SCORE = 0.8;
+const IMMEDIATE_INTERIM_MIN_INFORMATIVE_WORDS = 3;
 const UNIQUE_TARGET_MIN_SCORE = 0.88;
 const UNIQUE_TARGET_WINNER_MARGIN = 0.12;
+const LOCAL_RECOGNITION_PROBE_MS = 120;
+const TRACKING_SCROLL_DURATION_MS = 160;
+const TRACKING_VIEWPORT_TOP = 0.22;
+const TRACKING_VIEWPORT_BOTTOM = 0.68;
+const TRACKING_VIEWPORT_ANCHOR = 0.32;
 const RESTART_DELAYS_MS = [250, 750, 1_500] as const;
 const SPEECH_LANGUAGE = "en-US";
 
@@ -158,12 +172,6 @@ type TranscriptOption = {
   final: boolean;
 };
 
-type PendingInterimMatch = {
-  count: number;
-  observedAt: number;
-  targetKey: string;
-};
-
 const TargetRegistryContext = createContext<TargetRegistryContextValue | null>(
   null,
 );
@@ -190,6 +198,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     new Map<symbol, readonly MassFollowTargetRegistration[]>(),
   );
   const targetsRef = useRef<readonly MassFollowTargetRegistration[]>([]);
+  const preparedTargetsRef = useRef<PreparedMassSpeechCandidates | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const wantsListeningRef = useRef(false);
   const sessionGenerationRef = useRef(0);
@@ -198,7 +207,9 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
   const rollingWordsRef = useRef<readonly string[]>([]);
   const currentOrderRef = useRef<number | null>(null);
   const lastAcceptedMatchAtRef = useRef(0);
-  const pendingInterimMatchRef = useRef<PendingInterimMatch | null>(null);
+  const evidenceStateRef = useRef<MassSpeechEvidenceState>(
+    createMassSpeechEvidenceState(),
+  );
   const lastScrolledTargetRef = useRef<string | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const wakeLockSentinelRef = useRef<WakeLockSentinel | null>(null);
@@ -219,6 +230,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
       .filter((target) => target.enabled !== false)
       .sort((left, right) => left.order - right.order);
     targetsRef.current = nextTargets;
+    preparedTargetsRef.current = prepareMassSpeechCandidates(nextTargets);
 
     const currentId = activeTargetIdRef.current;
     if (
@@ -396,14 +408,16 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
       clearRestartTimer();
       disposeCurrentRecognition();
       releaseWakeLock();
+      cancelPendingScroll();
       rollingWordsRef.current = [];
-      pendingInterimMatchRef.current = null;
+      evidenceStateRef.current = createMassSpeechEvidenceState();
       setPauseReason(reason);
       setActivity("paused");
       updateStatus("paused");
     },
     [
       clearRestartTimer,
+      cancelPendingScroll,
       disposeCurrentRecognition,
       releaseWakeLock,
       updateStatus,
@@ -421,7 +435,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     rollingWordsRef.current = [];
     currentOrderRef.current = null;
     lastAcceptedMatchAtRef.current = 0;
-    pendingInterimMatchRef.current = null;
+    evidenceStateRef.current = createMassSpeechEvidenceState();
     lastScrolledTargetRef.current = null;
     activeTargetIdRef.current = null;
     setActiveTargetId(null);
@@ -441,7 +455,10 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
   ]);
 
   const revealAndScroll = useCallback(
-    (target: MassFollowTargetRegistration) => {
+    (
+      target: MassFollowTargetRegistration,
+      { instant = false }: { instant?: boolean } = {},
+    ) => {
       activeTargetIdRef.current = target.id;
       setActiveTargetId(target.id);
       setActiveTargetLabel(target.label ?? null);
@@ -451,7 +468,6 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
       if (lastScrolledTargetRef.current === targetKey) {
         return;
       }
-      lastScrolledTargetRef.current = targetKey;
 
       try {
         target.reveal?.();
@@ -480,7 +496,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
           }
 
           const element = document.getElementById(target.elementId);
-          if ((!element || element.closest("[hidden]")) && attempts < 6) {
+          if ((!element || element.closest("[hidden]")) && attempts < 12) {
             attempts += 1;
             revealCurrentTargetAndScroll();
             return;
@@ -489,13 +505,63 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
             return;
           }
 
+          lastScrolledTargetRef.current = targetKey;
           const reducedMotion = window.matchMedia(
             "(prefers-reduced-motion: reduce)",
           ).matches;
-          element.scrollIntoView({
-            behavior: reducedMotion ? "auto" : "smooth",
-            block: "center",
-          });
+          const viewportHeight = window.innerHeight;
+          const rect = element.getBoundingClientRect();
+          const comfortTop = viewportHeight * TRACKING_VIEWPORT_TOP;
+          const comfortBottom = viewportHeight * TRACKING_VIEWPORT_BOTTOM;
+          if (rect.top >= comfortTop && rect.bottom <= comfortBottom) {
+            return;
+          }
+
+          const documentHeight = Math.max(
+            document.body.scrollHeight,
+            document.documentElement.scrollHeight,
+          );
+          const maximumScroll = Math.max(0, documentHeight - viewportHeight);
+          const destination = Math.min(
+            maximumScroll,
+            Math.max(
+              0,
+              window.scrollY + rect.top - viewportHeight * TRACKING_VIEWPORT_ANCHOR,
+            ),
+          );
+          const start = window.scrollY;
+          const distance = destination - start;
+          if (Math.abs(distance) < 2) {
+            return;
+          }
+
+          if (
+            reducedMotion ||
+            instant ||
+            Math.abs(distance) > viewportHeight * 2.25
+          ) {
+            window.scrollTo({ behavior: "auto", top: destination });
+            return;
+          }
+
+          const startedAt = performance.now();
+          const animate = (timestamp: number) => {
+            const progress = Math.min(
+              1,
+              (timestamp - startedAt) / TRACKING_SCROLL_DURATION_MS,
+            );
+            const eased = 1 - Math.pow(1 - progress, 3);
+            window.scrollTo({
+              behavior: "auto",
+              top: start + distance * eased,
+            });
+            if (progress < 1) {
+              scrollFrameRef.current = window.requestAnimationFrame(animate);
+            } else {
+              scrollFrameRef.current = null;
+            }
+          };
+          scrollFrameRef.current = window.requestAnimationFrame(animate);
         });
       };
 
@@ -507,11 +573,11 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
   const considerTranscripts = useCallback(
     (transcripts: readonly TranscriptOption[]) => {
       const targets = targetsRef.current;
-      if (targets.length === 0) {
+      const prepared = preparedTargetsRef.current;
+      if (targets.length === 0 || !prepared) {
         return;
       }
 
-      const candidates: readonly MassSpeechCandidate[] = targets;
       const now = Date.now();
       const allowGlobal =
         currentOrderRef.current === null ||
@@ -519,13 +585,13 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
           GLOBAL_REACQUISITION_DELAY_MS;
       let bestSelection: {
         final: boolean;
-        match: NonNullable<ReturnType<typeof findMassSpeechMatch>>;
+        match: MassSpeechMatch;
         transcript: string;
       } | null = null;
       for (const option of transcripts) {
-        const match = findMassSpeechMatch({
+        const match = findPreparedMassSpeechMatch({
           transcript: option.transcript,
-          candidates,
+          prepared,
           currentOrder: currentOrderRef.current ?? undefined,
           allowGlobal,
         });
@@ -534,8 +600,10 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
           (!bestSelection ||
             match.score > bestSelection.match.score ||
             (match.score === bestSelection.match.score &&
-              option.final &&
-              !bestSelection.final))
+              (match.margin > bestSelection.match.margin ||
+                (match.margin === bestSelection.match.margin &&
+                  option.final &&
+                  !bestSelection.final))))
         ) {
           bestSelection = {
             final: option.final,
@@ -546,7 +614,6 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
       }
 
       if (!bestSelection) {
-        pendingInterimMatchRef.current = null;
         return;
       }
       const bestMatch = bestSelection.match;
@@ -557,7 +624,11 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
           candidate.order === matchedCandidate.order,
       );
       if (!target) {
-        pendingInterimMatchRef.current = null;
+        return;
+      }
+
+      const previousOrder = currentOrderRef.current;
+      if (previousOrder !== null && matchedCandidate.order <= previousOrder) {
         return;
       }
 
@@ -565,53 +636,56 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
         target.requiresUniqueMatch &&
         bestMatch.score < UNIQUE_TARGET_MIN_SCORE
       ) {
-        pendingInterimMatchRef.current = null;
         return;
       }
-      if (target.requiresUniqueMatch) {
-        const competingMatch = findMassSpeechMatch({
-          transcript: bestSelection.transcript,
-          candidates: candidates.filter(
-            (candidate) =>
-              candidate.id !== matchedCandidate.id ||
-              candidate.order !== matchedCandidate.order,
-          ),
-          currentOrder: currentOrderRef.current ?? undefined,
-          allowGlobal,
-        });
-        if (
-          competingMatch &&
-          bestMatch.score - competingMatch.score <
-            UNIQUE_TARGET_WINNER_MARGIN
-        ) {
-          pendingInterimMatchRef.current = null;
-          return;
-        }
+      if (
+        target.requiresUniqueMatch &&
+        bestMatch.margin < UNIQUE_TARGET_WINNER_MARGIN
+      ) {
+        return;
       }
 
+      const evidenceFingerprint = normalizeMassSpeech(
+        bestSelection.transcript,
+      );
+      if (!evidenceFingerprint) {
+        return;
+      }
+
+      let acceptImmediately = bestSelection.final;
       if (!bestSelection.final) {
-        const targetKey = `${target.id}:${target.order}`;
-        const pending = pendingInterimMatchRef.current;
-        const count =
-          pending &&
-          pending.targetKey === targetKey &&
-          now - pending.observedAt <= INTERIM_CONFIRMATION_WINDOW_MS
-            ? pending.count + 1
-            : 1;
-        pendingInterimMatchRef.current = {
-          count,
-          observedAt: now,
-          targetKey,
-        };
-        if (count < 2) {
-          return;
-        }
+        acceptImmediately =
+          previousOrder !== null &&
+          bestMatch.scope === "forward" &&
+          bestMatch.orderDistance === 1 &&
+          matchedCandidate.mode !== "response" &&
+          bestMatch.score >= IMMEDIATE_INTERIM_MIN_SCORE &&
+          bestMatch.matchedInformativeWords >=
+            IMMEDIATE_INTERIM_MIN_INFORMATIVE_WORDS;
       }
 
-      pendingInterimMatchRef.current = null;
+      const evidenceDecision = advanceMassSpeechEvidence({
+        acceptImmediately,
+        confirmationWindowMs: INTERIM_CONFIRMATION_WINDOW_MS,
+        final: bestSelection.final,
+        fingerprint: evidenceFingerprint,
+        now,
+        state: evidenceStateRef.current,
+        targetKey: `${target.id}:${target.order}`,
+      });
+      evidenceStateRef.current = evidenceDecision.state;
+      if (!evidenceDecision.accepted) {
+        return;
+      }
+
       lastAcceptedMatchAtRef.current = now;
       currentOrderRef.current = bestMatch.candidate.order;
-      revealAndScroll(target);
+      revealAndScroll(target, {
+        instant:
+          previousOrder === null ||
+          bestMatch.scope === "global" ||
+          (bestMatch.orderDistance ?? 1) > 3,
+      });
     },
     [revealAndScroll],
   );
@@ -619,51 +693,50 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
   const handleSpeechResult = useCallback(
     (event: SpeechRecognitionResultEventLike) => {
       restartAttemptsRef.current = 0;
-      const rollingWords = [...rollingWordsRef.current];
-      const transcriptOptions: TranscriptOption[] = [];
+      let rollingWords = [...rollingWordsRef.current];
+      let interimWords: readonly string[] | null = null;
+      const finalOptionGroups: TranscriptOption[][] = [];
 
-      for (let resultIndex = event.resultIndex; resultIndex < event.results.length; resultIndex += 1) {
+      for (
+        let resultIndex = event.resultIndex;
+        resultIndex < event.results.length;
+        resultIndex += 1
+      ) {
         const result = event.results[resultIndex];
         if (!result) {
           continue;
         }
 
         const alternatives = Array.from(
-          { length: Math.min(result.length, 3) },
+          { length: Math.min(result.length, result.isFinal ? 3 : 1) },
           (_, alternativeIndex) => result[alternativeIndex]?.transcript ?? "",
         ).filter(Boolean);
 
-        for (const alternative of alternatives) {
-          const transcript = appendToWordWindow(
-            rollingWords,
-            alternative,
-          ).join(" ");
-          if (
-            !transcriptOptions.some(
-              (option) =>
-                option.transcript === transcript &&
-                option.final === result.isFinal,
-            )
-          ) {
-            transcriptOptions.push({
-              final: result.isFinal,
-              transcript,
-            });
-          }
-        }
-
         if (result.isFinal && alternatives[0]) {
-          rollingWords.splice(
-            0,
-            rollingWords.length,
-            ...appendToWordWindow(rollingWords, alternatives[0]),
+          const options = alternatives.map((alternative) => ({
+            final: true,
+            transcript: appendToWordWindow(
+              rollingWords,
+              alternative,
+            ).join(" "),
+          }));
+          finalOptionGroups.push(options);
+          rollingWords = appendToWordWindow(rollingWords, alternatives[0]);
+          interimWords = null;
+        } else if (alternatives[0]) {
+          interimWords = appendToWordWindow(
+            interimWords ?? rollingWords,
+            alternatives[0],
           );
         }
       }
 
       rollingWordsRef.current = rollingWords.slice(-MAX_ROLLING_WORDS);
-      if (transcriptOptions.length > 0) {
-        considerTranscripts(transcriptOptions);
+      finalOptionGroups.forEach((options) => considerTranscripts(options));
+      if (interimWords) {
+        considerTranscripts([
+          { final: false, transcript: interimWords.join(" ") },
+        ]);
       }
     },
     [considerTranscripts],
@@ -745,8 +818,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     void acquireWakeLock();
     restartAttemptsRef.current = 0;
     rollingWordsRef.current = [];
-    pendingInterimMatchRef.current = null;
-    lastAcceptedMatchAtRef.current = Date.now();
+    evidenceStateRef.current = createMassSpeechEvidenceState();
     setErrorMessage(null);
     setPauseReason(null);
     setServiceMode("browser-managed");
@@ -772,10 +844,15 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
       typeof Recognition.available === "function"
     ) {
       try {
-        const availability = await Recognition.available({
-          langs: [SPEECH_LANGUAGE],
-          processLocally: true,
-        });
+        const availability = await Promise.race([
+          Recognition.available({
+            langs: [SPEECH_LANGUAGE],
+            processLocally: true,
+          }).catch(() => null),
+          new Promise<null>((resolve) => {
+            window.setTimeout(resolve, LOCAL_RECOGNITION_PROBE_MS);
+          }),
+        ]);
         if (availability === "available") {
           recognition.processLocally = true;
           if (mountedRef.current && generation === sessionGenerationRef.current) {
@@ -859,6 +936,13 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     if (!consentGiven) {
       setDisclosureOpen(true);
       return;
+    }
+    const activeTarget = targetsRef.current.find(
+      (target) => target.id === activeTargetIdRef.current,
+    );
+    if (activeTarget) {
+      lastScrolledTargetRef.current = null;
+      revealAndScroll(activeTarget, { instant: true });
     }
     void beginListening();
   }

@@ -786,6 +786,8 @@ function makeCelebration({
     massLectionary: dailyItem,
     readingSets,
     options: [appointed, proper],
+    propers: null,
+    propersByReadingSetId: {},
     riteKind,
   };
 }

@@ -22,7 +22,12 @@ import type {
   MassDialogueVariant,
   MassOrderItem,
 } from "@/lib/mass-order";
-import { splitMassSpeechText } from "@/lib/mass-speech-following";
+import {
+  createMassSpeechBridgeText,
+  normalizeMassSpeech,
+  splitMassSpeechText,
+  type MassSpeechCandidateMode,
+} from "@/lib/mass-speech-following";
 
 const ROLE_LABELS: Record<MassDialogueRole, string> = {
   priest: "Priest",
@@ -718,7 +723,14 @@ function buildLineTargets({
     }
 
     const lineIndex = lineOffset + sourceLineIndex;
-    return splitMassSpeechText(line.text).map((text, chunkIndex) => {
+    const chunks = splitMassSpeechText(line.text);
+    const mode = getDialogueTargetMode(line);
+    const previousLine =
+      sourceLineIndex > 0 && lines[sourceLineIndex - 1]?.role !== "rubric"
+        ? lines[sourceLineIndex - 1]?.text
+        : null;
+
+    return chunks.map((text, chunkIndex) => {
       const id = getFollowTargetId({
         chunkIndex,
         idPrefix,
@@ -727,6 +739,13 @@ function buildLineTargets({
         lineIndex,
         variantId: variant?.id ?? null,
       });
+      const bridge =
+        mode === "prose"
+          ? createMassSpeechBridgeText(
+              chunkIndex > 0 ? chunks[chunkIndex - 1] : previousLine,
+              text,
+            )
+          : null;
 
       return {
         elementId: id,
@@ -741,12 +760,26 @@ function buildLineTargets({
           itemIndex * 1_000 +
           lineIndex * 100 +
           chunkIndex,
+        matchTexts: bridge ? [bridge] : undefined,
+        mode,
         requiresUniqueMatch: variant !== null,
         reveal,
         text,
       };
     });
   });
+}
+
+function getDialogueTargetMode(
+  line: MassDialogueLine,
+): MassSpeechCandidateMode {
+  if (line.role !== "people") {
+    return "prose";
+  }
+
+  const normalized = normalizeMassSpeech(line.text);
+  const wordCount = normalized ? normalized.split(" ").length : 0;
+  return wordCount > 0 && wordCount <= 8 ? "response" : "prose";
 }
 
 function getFallbackLines(item: MassOrderItem): readonly MassDialogueLine[] {
