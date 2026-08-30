@@ -11,6 +11,18 @@ const MIN_GLOBAL_WINNER_MARGIN = 0.15;
 const MIN_FORWARD_SCORE = 0.68;
 const MIN_GLOBAL_POSTING_OVERLAP = 2;
 const DISTINCTIVE_NGRAM_WORDS = 4;
+const MIN_FUZZY_EXACT_ANCHORS = 3;
+const FUZZY_TOKEN_WEIGHT = 0.72;
+
+const IGNORED_RECOGNITION_WORDS = new Set([
+  "applause",
+  "erm",
+  "hmm",
+  "music",
+  "singing",
+  "uh",
+  "um",
+]);
 
 const UNINFORMATIVE_WORDS = new Set([
   "a",
@@ -111,6 +123,7 @@ export type MassSpeechEvidenceState = {
   pending: {
     count: number;
     fingerprint: string;
+    lastObservedAt: number;
     observedAt: number;
     targetKey: string;
   } | null;
@@ -118,9 +131,11 @@ export type MassSpeechEvidenceState = {
 
 type AdvanceMassSpeechEvidenceInput = {
   acceptImmediately: boolean;
+  allowAcceptedFingerprintReuse?: boolean;
   confirmationWindowMs: number;
   final: boolean;
   fingerprint: string;
+  repeatConfirmationDelayMs?: number;
   now: number;
   state: MassSpeechEvidenceState;
   targetKey: string;
@@ -180,11 +195,37 @@ type ScoredCandidate = ScoreEvidence & {
 };
 
 type AlignmentCell = {
+  exactMatches: number;
+  fuzzyMatches: number;
   informativeMatches: number;
-  matches: number;
   rawScore: number;
   startCandidateIndex: number;
   startTranscriptIndex: number;
+  weightedMatches: number;
+};
+
+export type MassSpeechAcceptanceDecision = {
+  acceptImmediately: boolean;
+  eligible: boolean;
+  reason:
+    | "eligible"
+    | "insufficient-informative-words"
+    | "insufficient-margin"
+    | "insufficient-score";
+};
+
+export type MassSpeechAcceptanceInput = {
+  alternativeRank?: number;
+  final: boolean;
+  initial: boolean;
+  match: MassSpeechMatch;
+  requiresConfirmation?: boolean;
+  requiresUniqueMatch?: boolean;
+};
+
+export type MassSpeechContextPhrase = {
+  boost: number;
+  text: string;
 };
 
 const preparedCandidateCache = new WeakMap<
@@ -200,16 +241,20 @@ export function createMassSpeechEvidenceState(): MassSpeechEvidenceState {
 }
 
 /**
- * Applies the streaming-evidence rules without touching browser state. Repeated
- * copies of one interim hypothesis never count twice, a correction to another
- * target starts fresh, and accepted evidence cannot advance another target.
+ * Applies the streaming-evidence rules without touching browser state. Rapid
+ * duplicate interims count once, stable wording can confirm after a brief
+ * settle delay, corrections to another target start fresh, and accepted
+ * evidence cannot advance another target unless the caller explicitly marks an
+ * immediate repeated response.
  */
 export function advanceMassSpeechEvidence({
   acceptImmediately,
+  allowAcceptedFingerprintReuse = false,
   confirmationWindowMs,
   final,
   fingerprint,
   now,
+  repeatConfirmationDelayMs = 280,
   state,
   targetKey,
 }: AdvanceMassSpeechEvidenceInput): MassSpeechEvidenceDecision {
@@ -217,12 +262,14 @@ export function advanceMassSpeechEvidence({
     !fingerprint ||
     !Number.isFinite(now) ||
     confirmationWindowMs < 0 ||
-    state.acceptedFingerprint === fingerprint
+    repeatConfirmationDelayMs < 0 ||
+    (state.acceptedFingerprint === fingerprint &&
+      !allowAcceptedFingerprintReuse)
   ) {
     return { accepted: false, state };
   }
 
-  if (final || acceptImmediately) {
+  if (acceptImmediately) {
     return {
       accepted: true,
       state: {
@@ -241,7 +288,20 @@ export function advanceMassSpeechEvidence({
     pending.targetKey === targetKey &&
     pending.fingerprint === fingerprint
   ) {
-    return { accepted: false, state };
+    const stableInterimHasSettled =
+      now - pending.observedAt >= repeatConfirmationDelayMs;
+    if (!final && !stableInterimHasSettled) {
+      return {
+        accepted: false,
+        state: {
+          acceptedFingerprint: state.acceptedFingerprint,
+          pending: {
+            ...pending,
+            lastObservedAt: now,
+          },
+        },
+      };
+    }
   }
 
   const count =
@@ -265,10 +325,160 @@ export function advanceMassSpeechEvidence({
       pending: {
         count,
         fingerprint,
+        lastObservedAt: now,
         observedAt: now,
         targetKey,
       },
     },
+  };
+}
+
+/**
+ * Converts a raw best match into a streaming acceptance tier. Nearby prose is
+ * intentionally quick, while skips, global reacquisition, lower-ranked speech
+ * alternatives, and targets that reveal a variant need progressively stronger
+ * evidence. The returned `eligible` result still flows through the independent
+ * evidence confirmer unless `acceptImmediately` is true.
+ */
+export function evaluateMassSpeechAcceptance({
+  alternativeRank = 0,
+  final,
+  initial,
+  match,
+  requiresConfirmation = false,
+  requiresUniqueMatch = false,
+}: MassSpeechAcceptanceInput): MassSpeechAcceptanceDecision {
+  const safeAlternativeRank = Math.max(0, Math.min(2, alternativeRank));
+  const isImmediateResponse =
+    (match.candidate.mode ?? "prose") === "response" &&
+    match.scope === "forward" &&
+    match.orderDistance === 1;
+  const candidateWordCount = normalizeMassSpeech(match.candidate.text)
+    .split(" ")
+    .filter(Boolean).length;
+  const isShortSequentialFormula =
+    !requiresUniqueMatch &&
+    (match.candidate.mode ?? "prose") === "prose" &&
+    match.scope === "forward" &&
+    match.orderDistance === 1 &&
+    candidateWordCount >= 4 &&
+    candidateWordCount <= 8;
+
+  if (isImmediateResponse) {
+    const eligible =
+      match.score === 1 &&
+      (!requiresUniqueMatch || match.margin >= 0.12);
+    return {
+      acceptImmediately:
+        eligible &&
+        !requiresUniqueMatch &&
+        !requiresConfirmation &&
+        (final || safeAlternativeRank === 0),
+      eligible,
+      reason:
+        match.score !== 1
+          ? "insufficient-score"
+          : eligible
+            ? "eligible"
+            : "insufficient-margin",
+    };
+  }
+
+  let minimumScore: number;
+  let minimumMargin: number;
+  let minimumInformativeWords: number;
+
+  if (initial) {
+    minimumScore = 0.75;
+    minimumMargin = 0.15;
+    minimumInformativeWords = 5;
+  } else if (match.scope === "global") {
+    minimumScore = 0.82;
+    minimumMargin = 0.15;
+    minimumInformativeWords = 5;
+  } else if ((match.orderDistance ?? Number.POSITIVE_INFINITY) === 1) {
+    minimumScore = isShortSequentialFormula ? 0.8 : 0.7;
+    minimumMargin = isShortSequentialFormula ? 0 : 0.03;
+    minimumInformativeWords = isShortSequentialFormula ? 1 : 3;
+  } else if ((match.orderDistance ?? Number.POSITIVE_INFINITY) <= 4) {
+    minimumScore = 0.8;
+    minimumMargin = 0.08;
+    minimumInformativeWords = 4;
+  } else {
+    minimumScore = 0.86;
+    minimumMargin = 0.12;
+    minimumInformativeWords = 5;
+  }
+
+  minimumScore +=
+    safeAlternativeRank * (isShortSequentialFormula ? 0.01 : 0.035);
+  minimumMargin +=
+    safeAlternativeRank * (isShortSequentialFormula ? 0 : 0.015);
+  if (requiresUniqueMatch) {
+    minimumScore = Math.max(
+      minimumScore,
+      candidateWordCount <= 8 ? 0.82 : 0.88,
+    );
+    minimumMargin = Math.max(minimumMargin, 0.12);
+  }
+
+  if (match.matchedInformativeWords < minimumInformativeWords) {
+    return {
+      acceptImmediately: false,
+      eligible: false,
+      reason: "insufficient-informative-words",
+    };
+  }
+  if (match.score < minimumScore) {
+    return {
+      acceptImmediately: false,
+      eligible: false,
+      reason: "insufficient-score",
+    };
+  }
+  if (match.margin < minimumMargin) {
+    return {
+      acceptImmediately: false,
+      eligible: false,
+      reason: "insufficient-margin",
+    };
+  }
+
+  const strongKnownSkip =
+    !requiresUniqueMatch &&
+    !requiresConfirmation &&
+    final &&
+    match.scope === "forward" &&
+    (match.orderDistance ?? Number.POSITIVE_INFINITY) > 1 &&
+    match.score >=
+      ((match.orderDistance ?? Number.POSITIVE_INFINITY) <= 4
+        ? 0.92
+        : 0.94) +
+        safeAlternativeRank * 0.01 &&
+    match.margin >= 0.14 + safeAlternativeRank * 0.02 &&
+    match.matchedInformativeWords >=
+      ((match.orderDistance ?? Number.POSITIVE_INFINITY) <= 4 ? 6 : 7);
+  const fastImmediateTarget =
+    !requiresUniqueMatch &&
+    !requiresConfirmation &&
+    final &&
+    match.scope === "forward" &&
+    match.orderDistance === 1 &&
+    match.score >=
+      (isShortSequentialFormula ? 0.8 : 0.84) +
+        safeAlternativeRank * (isShortSequentialFormula ? 0.01 : 0.04) &&
+    match.margin >=
+      (isShortSequentialFormula ? 0 : 0.05) +
+        safeAlternativeRank * (isShortSequentialFormula ? 0 : 0.02) &&
+    match.matchedInformativeWords >=
+      (isShortSequentialFormula ? 1 : 4);
+  return {
+    acceptImmediately:
+      (initial && final && !requiresConfirmation) ||
+      strongKnownSkip ||
+      fastImmediateTarget,
+    eligible: true,
+    reason: "eligible",
   };
 }
 
@@ -286,6 +496,135 @@ export function normalizeMassSpeech(text: string): string {
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/gu, " ");
+}
+
+/**
+ * Adds one browser recognition segment to a bounded transcript window. Browser
+ * engines frequently replay four or more trailing words in the next result;
+ * removing only those long overlaps avoids duplicated prose without collapsing
+ * legitimate short repetitions such as "Amen. Amen."
+ */
+export function appendMassSpeechWordWindow(
+  currentWords: readonly string[],
+  transcript: string,
+  maxWords = 24,
+) {
+  if (!Number.isInteger(maxWords) || maxWords < 1) {
+    throw new RangeError("Mass speech word windows require a positive size");
+  }
+
+  const existingWords = currentWords.filter(
+    (word) => !IGNORED_RECOGNITION_WORDS.has(normalizeMassSpeech(word)),
+  );
+  const incomingWords = transcript
+    .trim()
+    .split(/\s+/u)
+    .filter(Boolean)
+    .filter(
+      (word) => !IGNORED_RECOGNITION_WORDS.has(normalizeMassSpeech(word)),
+    );
+  const maximumOverlap = Math.min(
+    existingWords.length,
+    incomingWords.length,
+  );
+  let overlap = 0;
+  for (let length = maximumOverlap; length >= 4; length -= 1) {
+    const existingTail = existingWords
+      .slice(-length)
+      .map(normalizeMassSpeech);
+    const incomingHead = incomingWords.slice(0, length).map(normalizeMassSpeech);
+    if (
+      existingTail.every(
+        (word, index) => word.length > 0 && word === incomingHead[index],
+      )
+    ) {
+      overlap = length;
+      break;
+    }
+  }
+
+  return [...existingWords, ...incomingWords.slice(overlap)].slice(-maxWords);
+}
+
+/**
+ * Counts exact informative words contributed by the newest recognition
+ * segment for one candidate. Matching may use rolling context, but streaming
+ * confirmation must not be satisfied by an old phrase plus unrelated new
+ * speech.
+ */
+export function countMassSpeechFreshInformativeWords(
+  transcript: string,
+  candidate: MassSpeechCandidate,
+) {
+  const candidateWords = new Set<string>();
+  for (const text of [candidate.text, ...(candidate.matchTexts ?? [])]) {
+    for (const variation of createRecognitionVariations(text)) {
+      tokenize(variation)
+        .filter(isInformativeWord)
+        .forEach((word) => candidateWords.add(word));
+    }
+  }
+
+  return new Set(
+    tokenize(transcript).filter(
+      (word) => isInformativeWord(word) && candidateWords.has(word),
+    ),
+  ).size;
+}
+
+/**
+ * Builds a small, forward-only phrase list for browsers that implement Web
+ * Speech contextual biasing. Only distinctive prose is included; short common
+ * responses are deliberately left unbiased so the recognizer is not coaxed
+ * into inventing an Amen or another transition.
+ */
+export function createMassSpeechContextPhrases(
+  candidates: readonly MassSpeechCandidate[],
+  currentOrder: number | null | undefined,
+): MassSpeechContextPhrase[] {
+  if (currentOrder === null || currentOrder === undefined) {
+    return [];
+  }
+
+  const futureOrders = Array.from(
+    new Set(
+      candidates
+        .map((candidate) => candidate.order)
+        .filter((order) => order > currentOrder),
+    ),
+  )
+    .sort((left, right) => left - right)
+    .slice(0, FORWARD_TARGET_WINDOW);
+  const orderRanks = new Map(
+    futureOrders.map((order, index) => [order, index]),
+  );
+  const phrases = new Map<string, MassSpeechContextPhrase>();
+
+  for (const candidate of candidates) {
+    const orderRank = orderRanks.get(candidate.order);
+    const text = candidate.text.trim();
+    const normalized = normalizeMassSpeech(text);
+    const tokens = tokenize(text);
+    if (
+      orderRank === undefined ||
+      (candidate.mode ?? "prose") !== "prose" ||
+      !normalized ||
+      countInformativeWords(tokens) < 4 ||
+      phrases.has(normalized)
+    ) {
+      continue;
+    }
+
+    phrases.set(normalized, {
+      boost: orderRank < 4 ? 1.8 : 1.1,
+      text,
+    });
+    if (phrases.size >= 48) {
+      break;
+    }
+  }
+
+  return Array.from(phrases.values());
 }
 
 /**
@@ -383,16 +722,20 @@ export function prepareMassSpeechCandidates(
     (candidate, index) => {
       const normalizedVariations = new Map<string, PreparedVariation>();
       for (const matchText of [candidate.text, ...(candidate.matchTexts ?? [])]) {
-        const normalized = normalizeMassSpeech(matchText);
-        if (!normalized || normalizedVariations.has(normalized)) {
-          continue;
+        for (const normalized of createRecognitionVariations(matchText)) {
+          if (!normalized || normalizedVariations.has(normalized)) {
+            continue;
+          }
+          const tokens = tokenize(normalized);
+          if (tokens.length === 0) {
+            continue;
+          }
+          normalizedVariations.set(normalized, {
+            ngrams: new Set(createNgrams(tokens, DISTINCTIVE_NGRAM_WORDS)),
+            normalized,
+            tokens,
+          });
         }
-        const tokens = normalized.split(" ");
-        normalizedVariations.set(normalized, {
-          ngrams: new Set(createNgrams(tokens, DISTINCTIVE_NGRAM_WORDS)),
-          normalized,
-          tokens,
-        });
       }
 
       return {
@@ -472,6 +815,7 @@ export function findPreparedMassSpeechMatch({
     return null;
   }
 
+  let forwardMatch: MassSpeechMatch | null = null;
   if (currentOrder !== undefined) {
     const futureOrders = prepared.distinctOrders.filter(
       (order) => order > currentOrder,
@@ -498,7 +842,15 @@ export function findPreparedMassSpeechMatch({
     });
     const bestForward = forward[0];
     if (bestForward && bestForward.score >= MIN_FORWARD_SCORE) {
-      return toMatch(bestForward, forward, "forward", forwardOrderRanks);
+      forwardMatch = toMatch(
+        bestForward,
+        forward,
+        "forward",
+        forwardOrderRanks,
+      );
+      if (!allowGlobal) {
+        return forwardMatch;
+      }
     }
   }
 
@@ -506,7 +858,7 @@ export function findPreparedMassSpeechMatch({
     !allowGlobal ||
     countInformativeWords(transcriptTokens) < MIN_GLOBAL_INFORMATIVE_WORDS
   ) {
-    return null;
+    return forwardMatch;
   }
 
   const globalCandidateIndexes = getGlobalCandidateIndexes({
@@ -526,7 +878,7 @@ export function findPreparedMassSpeechMatch({
     bestGlobal.matchedInformativeWords < MIN_GLOBAL_INFORMATIVE_WORDS ||
     !isDistinctiveGlobalMatch(bestGlobal, prepared)
   ) {
-    return null;
+    return forwardMatch;
   }
 
   const runnerUp = getRunnerUp(bestGlobal, global);
@@ -534,10 +886,27 @@ export function findPreparedMassSpeechMatch({
     runnerUp &&
     bestGlobal.score - runnerUp.score < MIN_GLOBAL_WINNER_MARGIN
   ) {
-    return null;
+    return forwardMatch;
   }
 
-  return toMatch(bestGlobal, global, "global", undefined, currentOrder);
+  const globalMatch = toMatch(
+    bestGlobal,
+    global,
+    "global",
+    undefined,
+    currentOrder,
+  );
+  if (!forwardMatch) {
+    return globalMatch;
+  }
+  if (globalMatch.candidate.id === forwardMatch.candidate.id) {
+    return forwardMatch;
+  }
+
+  return globalMatch.score >= 0.9 &&
+    globalMatch.score - forwardMatch.score >= 0.1
+    ? globalMatch
+    : forwardMatch;
 }
 
 /**
@@ -749,16 +1118,26 @@ function scoreOrderedTokens(
     ) {
       const transcriptToken = transcriptTail[transcriptIndex];
       const candidateToken = candidateTokens[candidateIndex];
-      const matches = transcriptToken === candidateToken;
+      const exactMatch = transcriptToken === candidateToken;
+      const fuzzyMatch =
+        !exactMatch &&
+        isConservativeFuzzyTokenMatch(
+          transcriptToken ?? "",
+          candidateToken ?? "",
+        );
+      const matches = exactMatch || fuzzyMatch;
       const options: AlignmentCell[] = [];
 
       if (matches) {
         options.push({
-          informativeMatches: isInformativeWord(transcriptToken ?? "") ? 1 : 0,
-          matches: 1,
-          rawScore: 2,
+          exactMatches: exactMatch ? 1 : 0,
+          fuzzyMatches: fuzzyMatch ? 1 : 0,
+          informativeMatches:
+            exactMatch && isInformativeWord(transcriptToken ?? "") ? 1 : 0,
+          rawScore: exactMatch ? 2 : 1.25,
           startCandidateIndex: candidateIndex,
           startTranscriptIndex: transcriptIndex,
+          weightedMatches: exactMatch ? 1 : FUZZY_TOKEN_WEIGHT,
         });
       }
 
@@ -767,8 +1146,9 @@ function scoreOrderedTokens(
         options.push(
           extendAlignmentCell(
             diagonal,
-            matches ? 2 : -1,
-            matches,
+            exactMatch ? 2 : fuzzyMatch ? 1.25 : -1,
+            exactMatch,
+            fuzzyMatch,
             transcriptToken ?? "",
           ),
         );
@@ -776,13 +1156,13 @@ function scoreOrderedTokens(
       const transcriptGap = previous[candidateIndex + 1];
       if (transcriptGap) {
         options.push(
-          extendAlignmentCell(transcriptGap, -1, false, ""),
+          extendAlignmentCell(transcriptGap, -1, false, false, ""),
         );
       }
       const candidateGap = current[candidateIndex];
       if (candidateGap) {
         options.push(
-          extendAlignmentCell(candidateGap, -1, false, ""),
+          extendAlignmentCell(candidateGap, -1, false, false, ""),
         );
       }
 
@@ -811,8 +1191,12 @@ function scoreOrderedTokens(
       return;
     }
 
+    const reliableMatchWeight =
+      cell.exactMatches >= MIN_FUZZY_EXACT_ANCHORS
+        ? cell.weightedMatches
+        : cell.exactMatches;
     const similarity =
-      cell.matches / Math.max(transcriptLength, candidateLength);
+      reliableMatchWeight / Math.max(transcriptLength, candidateLength);
     const evidenceWeight =
       0.82 +
       0.18 *
@@ -841,17 +1225,22 @@ function scoreOrderedTokens(
 function extendAlignmentCell(
   cell: AlignmentCell,
   rawScoreDelta: number,
-  matched: boolean,
+  exactMatch: boolean,
+  fuzzyMatch: boolean,
   transcriptToken: string,
 ): AlignmentCell {
   return {
+    exactMatches: cell.exactMatches + (exactMatch ? 1 : 0),
+    fuzzyMatches: cell.fuzzyMatches + (fuzzyMatch ? 1 : 0),
     informativeMatches:
       cell.informativeMatches +
-      (matched && isInformativeWord(transcriptToken) ? 1 : 0),
-    matches: cell.matches + (matched ? 1 : 0),
+      (exactMatch && isInformativeWord(transcriptToken) ? 1 : 0),
     rawScore: cell.rawScore + rawScoreDelta,
     startCandidateIndex: cell.startCandidateIndex,
     startTranscriptIndex: cell.startTranscriptIndex,
+    weightedMatches:
+      cell.weightedMatches +
+      (exactMatch ? 1 : fuzzyMatch ? FUZZY_TOKEN_WEIGHT : 0),
   };
 }
 
@@ -859,8 +1248,11 @@ function compareAlignmentCells(left: AlignmentCell, right: AlignmentCell) {
   if (left.rawScore !== right.rawScore) {
     return right.rawScore - left.rawScore;
   }
-  if (left.matches !== right.matches) {
-    return right.matches - left.matches;
+  if (left.exactMatches !== right.exactMatches) {
+    return right.exactMatches - left.exactMatches;
+  }
+  if (left.weightedMatches !== right.weightedMatches) {
+    return right.weightedMatches - left.weightedMatches;
   }
   if (left.informativeMatches !== right.informativeMatches) {
     return right.informativeMatches - left.informativeMatches;
@@ -992,7 +1384,73 @@ function createNgrams(words: readonly string[], length: number) {
 
 function tokenize(text: string) {
   const normalized = normalizeMassSpeech(text);
-  return normalized ? normalized.split(" ") : [];
+  return normalized
+    ? normalized
+        .split(" ")
+        .filter((token) => !IGNORED_RECOGNITION_WORDS.has(token))
+    : [];
+}
+
+function createRecognitionVariations(text: string) {
+  const normalized = normalizeMassSpeech(text);
+  if (!normalized) {
+    return [];
+  }
+
+  const variations = new Set([normalized]);
+  if (/\bamen\b/u.test(normalized)) {
+    variations.add(normalized.replace(/\bamen\b/gu, "a man"));
+    variations.add(normalized.replace(/\bamen\b/gu, "a men"));
+  }
+  if (/\bbrethren\b/u.test(normalized)) {
+    variations.add(
+      normalized.replace(/\bbrethren\b/gu, "brothers and sisters"),
+    );
+  }
+  if (/\bbrothers and sisters\b/u.test(normalized)) {
+    variations.add(
+      normalized.replace(/\bbrothers and sisters\b/gu, "brethren"),
+    );
+  }
+  return Array.from(variations);
+}
+
+function isConservativeFuzzyTokenMatch(left: string, right: string) {
+  if (
+    left.length < 5 ||
+    right.length < 5 ||
+    Math.abs(left.length - right.length) > 1 ||
+    !isInformativeWord(left) ||
+    !isInformativeWord(right)
+  ) {
+    return false;
+  }
+
+  let leftIndex = 0;
+  let rightIndex = 0;
+  let edits = 0;
+  while (leftIndex < left.length && rightIndex < right.length) {
+    if (left[leftIndex] === right[rightIndex]) {
+      leftIndex += 1;
+      rightIndex += 1;
+      continue;
+    }
+    edits += 1;
+    if (edits > 1) {
+      return false;
+    }
+    if (left.length > right.length) {
+      leftIndex += 1;
+    } else if (right.length > left.length) {
+      rightIndex += 1;
+    } else {
+      leftIndex += 1;
+      rightIndex += 1;
+    }
+  }
+
+  edits += left.length - leftIndex + (right.length - rightIndex);
+  return edits === 1;
 }
 
 function countInformativeWords(words: readonly string[]) {

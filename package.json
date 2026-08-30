@@ -11,6 +11,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "office:validate": "tsx scripts/validate-office.ts",
     "mass:validate": "tsx scripts/validate-mass.ts",
+    "mass:e2e": "playwright test tests/e2e/mass-follow.spec.ts",
     "kindle:validate": "tsx scripts/validate-kindle-mass.ts",
     "ai:validate": "tsx scripts/validate-ai.ts",
     "prayers:validate": "tsx scripts/validate-prayers.ts",
@@ -33,6 +34,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",

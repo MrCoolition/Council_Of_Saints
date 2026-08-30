@@ -11,14 +11,19 @@ import {
 } from "../src/lib/mass-order";
 import {
   advanceMassSpeechEvidence,
+  appendMassSpeechWordWindow,
+  countMassSpeechFreshInformativeWords,
   createMassSpeechBridgeText,
+  createMassSpeechContextPhrases,
   createMassSpeechEvidenceState,
+  evaluateMassSpeechAcceptance,
   findMassSpeechMatch,
   findPreparedMassSpeechMatch,
   normalizeMassSpeech,
   prepareMassSpeechCandidates,
   splitMassSpeechText,
   type MassSpeechCandidate,
+  type MassSpeechMatch,
 } from "../src/lib/mass-speech-following";
 import {
   AUGUST_1_2026_US_MASS_READINGS,
@@ -68,6 +73,7 @@ async function main() {
   validateMassProperReadingSetSelection();
   validateMassSpeechFollowing();
   validateMassSpeechEvidence();
+  validateMassSpeechAcceptancePolicy();
   validateGoldenFixtures();
   validateUsccbFeedParser();
   validateUsccbRelatedReadingResolver();
@@ -1058,6 +1064,22 @@ function validateMassSpeechFollowing() {
     "A short repeated response must advance only to the immediate next target",
   );
   match = findMassSpeechMatch({
+    transcript: "room noise a man",
+    candidates: responseCandidates,
+    currentOrder: 1_000,
+  });
+  assert(
+    match?.candidate.id === "amen-immediate",
+    "The common speech-recognition rendering of Amen must work only at the immediate response",
+  );
+  assert(
+    findMassSpeechMatch({
+      transcript: "room noise a man",
+      candidates: responseCandidates,
+    }) === null,
+    "The matcher-only Amen alias must never create an initial or global jump",
+  );
+  match = findMassSpeechMatch({
     transcript: "Amen.",
     candidates: responseCandidates,
     currentOrder: 2_000,
@@ -1118,6 +1140,43 @@ function validateMassSpeechFollowing() {
       transcript: longResponse,
     }) === null,
     "A response must not skip over an intervening target order",
+  );
+
+  const recognitionContext = createMassSpeechContextPhrases(
+    [
+      {
+        id: "context-current",
+        order: 1_000,
+        text: "The current spoken phrase is already behind the listener.",
+      },
+      {
+        id: "context-next",
+        order: 2_000,
+        text: "Merciful Father gather your scattered children into one faithful family.",
+      },
+      {
+        id: "context-response",
+        mode: "response",
+        order: 3_000,
+        text: "Amen.",
+      },
+      {
+        id: "context-duplicate",
+        order: 4_000,
+        text: "Merciful Father gather your scattered children into one faithful family.",
+      },
+    ],
+    1_000,
+  );
+  assert(
+    recognitionContext.length === 1 &&
+      recognitionContext[0]?.boost === 1.8 &&
+      recognitionContext[0]?.text.startsWith("Merciful Father"),
+    "Contextual recognition hints must be forward-only, distinctive, prose-only, and deduplicated",
+  );
+  assert(
+    createMassSpeechContextPhrases(responseCandidates, null).length === 0,
+    "Contextual recognition must remain unbiased before the Mass position is acquired",
   );
 
   const bridgeCurrent =
@@ -1211,6 +1270,43 @@ function validateMassSpeechFollowing() {
     match?.candidate.id === "seventeenth-forward-target" &&
       match.scope === "global",
     "Global reacquisition must recover a distinctive future phrase beyond the forward window",
+  );
+
+  const shadowedGlobalPhrase =
+    "merciful father gather your scattered children into one faithful family beneath the light of truth";
+  const shadowedGlobalCandidates: MassSpeechCandidate[] = [
+    {
+      id: "shadow-current",
+      order: 0,
+      text: "Current known target words remain here for testing only.",
+    },
+    ...Array.from({ length: 15 }, (_, index) => ({
+      id: `shadow-decoy-${index}`,
+      order: index + 1,
+      text: `Unrelated decoy phrase number ${index} with morning bells distant valleys radiant orchards.`,
+    })),
+    {
+      id: "weak-forward-shadow",
+      order: 16,
+      text: "Merciful father gather your scattered children into one faithful household beneath radiant truth.",
+    },
+    {
+      id: "exact-global-anchor",
+      order: 17,
+      text: shadowedGlobalPhrase,
+    },
+  ];
+  match = findMassSpeechMatch({
+    allowGlobal: true,
+    candidates: shadowedGlobalCandidates,
+    currentOrder: 0,
+    transcript: shadowedGlobalPhrase,
+  });
+  assert(
+    match?.candidate.id === "exact-global-anchor" &&
+      match.scope === "global" &&
+      match.score >= 0.9,
+    "An exact distinctive global anchor must outrank a weak candidate at the edge of the forward window",
   );
 
   const readingCandidates: MassSpeechCandidate[] = [
@@ -1411,6 +1507,147 @@ function validateMassSpeechFollowing() {
     match?.candidate.id === "rolling-target",
     "Matching must use the relevant suffix of a growing rolling transcript",
   );
+
+  const deoverlappedWindow = appendMassSpeechWordWindow(
+    ["The", "love", "of", "God", "and", "the", "communion"],
+    "love of God and the communion of the Holy Spirit be with you all",
+  );
+  assert(
+    deoverlappedWindow.join(" ") ===
+      "The love of God and the communion of the Holy Spirit be with you all",
+    "Rolling browser transcripts must remove a replayed four-word-or-longer overlap",
+  );
+  assert(
+    appendMassSpeechWordWindow(["Amen."], "Amen.").length === 2,
+    "Short repeated liturgical responses must never be de-overlapped",
+  );
+  assert(
+    appendMassSpeechWordWindow(
+      ["one"],
+      "[music] singing um uh two",
+    ).join(" ") === "one two",
+    "Recognition filler and caption tags must not consume the rolling window",
+  );
+  expectRangeError(() => appendMassSpeechWordWindow([], "words", 0));
+
+  const orateFratresCandidates: MassSpeechCandidate[] = [
+    {
+      id: "preparation-current",
+      order: 1_000,
+      text: "The gifts are carried toward the altar as the assembly remains in prayer.",
+    },
+    {
+      id: "orate-fratres",
+      order: 2_000,
+      text: "Pray, brethren, that my sacrifice and yours may be acceptable to God, the almighty Father.",
+    },
+  ];
+  match = findMassSpeechMatch({
+    candidates: orateFratresCandidates,
+    currentOrder: 1_000,
+    transcript:
+      "pray brothers and sisters that my sacrafice and yours may be acceptable to god the almighty father",
+  });
+  assert(
+    match?.candidate.id === "orate-fratres" &&
+      match.score >= 0.8 &&
+      match.matchedInformativeWords >= 6,
+    "Matching must tolerate the spoken brethren alias plus one anchored ASR spelling error",
+  );
+  assert(
+    findMassSpeechMatch({
+      candidates: [
+        {
+          id: "fuzzy-negative",
+          order: 1_000,
+          text: "Merciful shepherd gathers wandering pilgrims beside radiant waters.",
+        },
+      ],
+      transcript:
+        "mercifal shephard gathars wandereng pilgrems beside radiunt watars",
+    }) === null,
+    "Fuzzy words without at least three exact anchors must never acquire a target",
+  );
+  assert(
+    findMassSpeechMatch({
+      candidates: orateFratresCandidates,
+      transcript: "[music] singing applause um uh",
+    }) === null,
+    "Music tags and recognition filler must hold the current Mass position",
+  );
+
+  const benchmarkTransitionCandidates: MassSpeechCandidate[] = [
+    {
+      id: "benchmark-gospel",
+      order: 10_000,
+      text: "The Lord be with you. A reading from the holy Gospel according to Luke.",
+    },
+    {
+      id: "benchmark-creed",
+      order: 20_000,
+      text: "I believe in one God, the Father almighty, maker of heaven and earth, of all things visible and invisible.",
+    },
+    {
+      id: "benchmark-offering",
+      order: 30_000,
+      text: "Pray, brethren, that my sacrifice and yours may be acceptable to God, the almighty Father.",
+    },
+    {
+      id: "benchmark-blessing",
+      order: 40_000,
+      text: "May almighty God bless you, the Father, and the Son, and the Holy Spirit.",
+    },
+  ];
+  for (const transcript of [
+    "if we allow Christ to renew our minds and guide our hearts",
+    "following him is not a burden rather it is the path that leads to deepest joy",
+    "[music] holy [singing] holy applause",
+    "after Mass the parish gathering will begin beside the school entrance",
+  ]) {
+    assert(
+      findMassSpeechMatch({
+        allowGlobal: true,
+        candidates: benchmarkTransitionCandidates,
+        currentOrder: 10_000,
+        transcript,
+      }) === null,
+      "Homily, music, and announcement bursts from the benchmark must hold position",
+    );
+  }
+  match = findMassSpeechMatch({
+    allowGlobal: true,
+    candidates: benchmarkTransitionCandidates,
+    currentOrder: 10_000,
+    transcript:
+      "I believe in one God the Father almighty maker of heaven and earth of all things visible and invisible",
+  });
+  assert(
+    match?.candidate.id === "benchmark-creed",
+    "The first known phrase after a variable homily must reacquire the Mass",
+  );
+  assert(
+    findMassSpeechMatch({
+      allowGlobal: true,
+      candidates: benchmarkTransitionCandidates,
+      currentOrder: 30_000,
+      transcript:
+        "I believe in one God the Father almighty maker of heaven and earth of all things visible and invisible",
+    }) === null,
+    "A previously spoken benchmark anchor must never move following backward",
+  );
+  const benchmarkCreed = benchmarkTransitionCandidates[1];
+  assert(
+    benchmarkCreed !== undefined &&
+      countMassSpeechFreshInformativeWords(
+        "I believe in one God the Father almighty maker of heaven and earth",
+        benchmarkCreed,
+      ) >= 3 &&
+      countMassSpeechFreshInformativeWords(
+        "today the parish picnic begins after the final hymn",
+        benchmarkCreed,
+      ) === 0,
+    "Only the newest segment's informative words may confirm a risky rolling-context match",
+  );
 }
 
 function validateMassSpeechEvidence() {
@@ -1420,41 +1657,98 @@ function validateMassSpeechEvidence() {
     acceptImmediately: false,
     confirmationWindowMs,
     final: false,
-    fingerprint: "alpha-short",
-    now: 100,
+    fingerprint: "stable-creed",
+    now: 0,
+    repeatConfirmationDelayMs: 250,
     state,
-    targetKey: "alpha",
+    targetKey: "creed",
   });
   assert(
     !decision.accepted &&
       decision.state.pending?.count === 1 &&
-      decision.state.pending.fingerprint === "alpha-short",
+      decision.state.pending.observedAt === 0 &&
+      decision.state.pending.lastObservedAt === 0,
     "The first interim hypothesis must remain pending",
   );
-  const firstPendingState = decision.state;
   decision = advanceMassSpeechEvidence({
     acceptImmediately: false,
     confirmationWindowMs,
     final: false,
-    fingerprint: "alpha-short",
-    now: 300,
-    state: firstPendingState,
-    targetKey: "alpha",
+    fingerprint: "stable-creed",
+    now: 100,
+    repeatConfirmationDelayMs: 250,
+    state: decision.state,
+    targetKey: "creed",
   });
   assert(
     !decision.accepted &&
-      decision.state === firstPendingState &&
       decision.state.pending?.count === 1 &&
-      decision.state.pending.observedAt === 100,
-    "An identical interim event must not count as independent confirmation",
+      decision.state.pending.observedAt === 0 &&
+      decision.state.pending.lastObservedAt === 100,
+    "A rapid duplicate interim must update observation time without counting twice",
+  );
+  decision = advanceMassSpeechEvidence({
+    acceptImmediately: false,
+    confirmationWindowMs,
+    final: false,
+    fingerprint: "stable-creed",
+    now: 300,
+    repeatConfirmationDelayMs: 250,
+    state: decision.state,
+    targetKey: "creed",
+  });
+  assert(
+    decision.accepted &&
+      decision.state.pending === null &&
+      decision.state.acceptedFingerprint === "stable-creed",
+    "A stable interim must confirm after a short settle delay even when its wording never changes",
   );
 
+  const acceptedState = decision.state;
+  decision = advanceMassSpeechEvidence({
+    acceptImmediately: true,
+    confirmationWindowMs,
+    final: true,
+    fingerprint: "stable-creed",
+    now: 400,
+    state: acceptedState,
+    targetKey: "later-response",
+  });
+  assert(
+    !decision.accepted && decision.state === acceptedState,
+    "Accepted evidence must not be replayed to advance another target by default",
+  );
+  decision = advanceMassSpeechEvidence({
+    acceptImmediately: true,
+    allowAcceptedFingerprintReuse: true,
+    confirmationWindowMs,
+    final: true,
+    fingerprint: "stable-creed",
+    now: 500,
+    state: acceptedState,
+    targetKey: "immediate-repeated-response",
+  });
+  assert(
+    decision.accepted,
+    "The caller may explicitly reuse identical evidence only for an immediate expected response",
+  );
+
+  state = createMassSpeechEvidenceState();
+  decision = advanceMassSpeechEvidence({
+    acceptImmediately: false,
+    confirmationWindowMs,
+    final: false,
+    fingerprint: "alpha-opening",
+    now: 1_000,
+    state,
+    targetKey: "alpha",
+  });
   decision = advanceMassSpeechEvidence({
     acceptImmediately: false,
     confirmationWindowMs,
     final: false,
     fingerprint: "beta-correction",
-    now: 500,
+    now: 1_100,
     state: decision.state,
     targetKey: "beta",
   });
@@ -1471,7 +1765,7 @@ function validateMassSpeechEvidence() {
     confirmationWindowMs,
     final: false,
     fingerprint: "gamma-opening",
-    now: 1_000,
+    now: 1_200,
     state,
     targetKey: "gamma",
   });
@@ -1480,7 +1774,7 @@ function validateMassSpeechEvidence() {
     confirmationWindowMs,
     final: false,
     fingerprint: "gamma-opening-extended",
-    now: 1_200,
+    now: 1_300,
     state: decision.state,
     targetKey: "gamma",
   });
@@ -1491,19 +1785,34 @@ function validateMassSpeechEvidence() {
     "A distinct extension for the same target must provide second-pass confirmation",
   );
 
-  const acceptedState = decision.state;
+  state = createMassSpeechEvidenceState();
   decision = advanceMassSpeechEvidence({
     acceptImmediately: false,
     confirmationWindowMs,
     final: true,
-    fingerprint: "gamma-opening-extended",
-    now: 1_300,
-    state: acceptedState,
-    targetKey: "delta",
+    fingerprint: "far-final",
+    now: 2_000,
+    state,
+    targetKey: "far-target",
   });
   assert(
-    !decision.accepted && decision.state === acceptedState,
-    "Accepted transcript evidence must not be replayed to advance another target",
+    !decision.accepted && decision.state.pending?.count === 1,
+    "A risky final result must remain pending instead of being trusted unconditionally",
+  );
+  decision = advanceMassSpeechEvidence({
+    acceptImmediately: false,
+    confirmationWindowMs,
+    final: true,
+    fingerprint: "far-final",
+    now: 2_100,
+    state: decision.state,
+    targetKey: "far-target",
+  });
+  assert(
+    decision.accepted &&
+      decision.state.pending === null &&
+      decision.state.acceptedFingerprint === "far-final",
+    "A second final for the same target must confirm without waiting for the interim settle delay",
   );
 
   state = createMassSpeechEvidenceState();
@@ -1512,7 +1821,7 @@ function validateMassSpeechEvidence() {
     confirmationWindowMs,
     final: false,
     fingerprint: "epsilon-interim",
-    now: 2_000,
+    now: 2_200,
     state,
     targetKey: "epsilon",
   });
@@ -1521,15 +1830,13 @@ function validateMassSpeechEvidence() {
     confirmationWindowMs,
     final: true,
     fingerprint: "epsilon-final",
-    now: 2_100,
+    now: 2_300,
     state: decision.state,
     targetKey: "epsilon",
   });
   assert(
-    decision.accepted &&
-      decision.state.pending === null &&
-      decision.state.acceptedFingerprint === "epsilon-final",
-    "A final recognition result must accept immediately and clear pending evidence",
+    decision.accepted,
+    "A final correction must confirm existing evidence for the same target",
   );
 
   state = createMassSpeechEvidenceState();
@@ -1558,6 +1865,327 @@ function validateMassSpeechEvidence() {
       decision.state.pending.observedAt ===
         3_000 + confirmationWindowMs + 1,
     "Expired pending evidence must restart confirmation instead of accepting after a pause",
+  );
+}
+
+function validateMassSpeechAcceptancePolicy() {
+  const acceptanceMatch = (
+    overrides: Partial<MassSpeechMatch>,
+  ): MassSpeechMatch => ({
+    candidate: {
+      id: "acceptance-fixture",
+      order: 2_000,
+      text: "Distinctive fixture prose for acceptance policy validation.",
+    },
+    margin: 0.2,
+    matchedInformativeWords: 6,
+    orderDistance: 1,
+    runnerUp: null,
+    scope: "forward",
+    score: 0.9,
+    ...overrides,
+  });
+
+  let decision = evaluateMassSpeechAcceptance({
+    final: true,
+    initial: true,
+    match: acceptanceMatch({
+      margin: 0.18,
+      matchedInformativeWords: 5,
+      orderDistance: null,
+      scope: "global",
+      score: 0.8,
+    }),
+  });
+  assert(
+    decision.eligible && decision.acceptImmediately,
+    "A distinctive final phrase must acquire the initial Mass position immediately",
+  );
+  decision = evaluateMassSpeechAcceptance({
+    final: false,
+    initial: true,
+    match: acceptanceMatch({
+      margin: 0.18,
+      matchedInformativeWords: 5,
+      orderDistance: null,
+      scope: "global",
+      score: 0.8,
+    }),
+  });
+  assert(
+    decision.eligible && !decision.acceptImmediately,
+    "Initial interim acquisition must wait for streaming confirmation",
+  );
+
+  decision = evaluateMassSpeechAcceptance({
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      margin: 0.1,
+      matchedInformativeWords: 5,
+      orderDistance: 3,
+      score: 0.84,
+    }),
+  });
+  assert(
+    decision.eligible && !decision.acceptImmediately,
+    "A moderate forward skip must be eligible but require confirmation",
+  );
+  decision = evaluateMassSpeechAcceptance({
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      margin: 0.3,
+      matchedInformativeWords: 7,
+      orderDistance: 1,
+      score: 0.96,
+    }),
+    requiresConfirmation: true,
+  });
+  assert(
+    decision.eligible && !decision.acceptImmediately,
+    "The first exact phrase after a variable gap must receive independent confirmation",
+  );
+  decision = evaluateMassSpeechAcceptance({
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      margin: 0.15,
+      matchedInformativeWords: 6,
+      orderDistance: 12,
+      score: 0.88,
+    }),
+  });
+  assert(
+    decision.eligible && !decision.acceptImmediately,
+    "A long forward skip must never trust one merely adequate final result",
+  );
+  decision = evaluateMassSpeechAcceptance({
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      margin: 0.3,
+      matchedInformativeWords: 9,
+      orderDistance: 12,
+      score: 0.96,
+    }),
+  });
+  assert(
+    decision.eligible && decision.acceptImmediately,
+    "An exceptionally strong final phrase may cross a long known gap without visible lag",
+  );
+
+  decision = evaluateMassSpeechAcceptance({
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      margin: 0.2,
+      matchedInformativeWords: 6,
+      orderDistance: null,
+      scope: "global",
+      score: 0.9,
+    }),
+  });
+  assert(
+    decision.eligible && !decision.acceptImmediately,
+    "Global reacquisition after a variable section must normally require two observations",
+  );
+  decision = evaluateMassSpeechAcceptance({
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      margin: 0.3,
+      matchedInformativeWords: 9,
+      orderDistance: null,
+      scope: "global",
+      score: 0.96,
+    }),
+  });
+  assert(
+    decision.eligible && !decision.acceptImmediately,
+    "Even an unmistakable acquired global anchor must receive independent confirmation",
+  );
+
+  decision = evaluateMassSpeechAcceptance({
+    final: false,
+    initial: false,
+    match: acceptanceMatch({
+      margin: 0.3,
+      matchedInformativeWords: 9,
+      orderDistance: 1,
+      score: 0.96,
+    }),
+    requiresUniqueMatch: true,
+  });
+  assert(
+    decision.eligible && !decision.acceptImmediately,
+    "One interim result must never auto-select a dialogue or reading variant",
+  );
+  decision = evaluateMassSpeechAcceptance({
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      margin: 0.3,
+      matchedInformativeWords: 9,
+      orderDistance: 1,
+      score: 0.96,
+    }),
+    requiresUniqueMatch: true,
+  });
+  assert(
+    decision.eligible && !decision.acceptImmediately,
+    "One acquired final result must not auto-select a dialogue or reading variant",
+  );
+  decision = evaluateMassSpeechAcceptance({
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      candidate: {
+        id: "short-dismissal-variant",
+        order: 2_000,
+        text: "Go forth, the Mass is ended.",
+      },
+      margin: 0.3,
+      matchedInformativeWords: 4,
+      orderDistance: 1,
+      score: 0.82,
+    }),
+    requiresUniqueMatch: true,
+  });
+  assert(
+    decision.eligible && !decision.acceptImmediately,
+    "A distinctive short dismissal variant must remain selectable after confirmation",
+  );
+  decision = evaluateMassSpeechAcceptance({
+    alternativeRank: 2,
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      margin: 0.1,
+      matchedInformativeWords: 6,
+      orderDistance: 3,
+      score: 0.9,
+    }),
+  });
+  assert(
+    !decision.eligible && decision.reason === "insufficient-margin",
+    "A marginal third browser alternative must not outrank safer evidence",
+  );
+  decision = evaluateMassSpeechAcceptance({
+    alternativeRank: 2,
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      margin: 0.5,
+      matchedInformativeWords: 9,
+      orderDistance: 3,
+      score: 0.99,
+    }),
+  });
+  assert(
+    decision.eligible,
+    "A nearly exact lower-ranked alternative must remain usable when the browser ranks it poorly",
+  );
+
+  decision = evaluateMassSpeechAcceptance({
+    alternativeRank: 2,
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      candidate: {
+        id: "immediate-amen",
+        mode: "response",
+        order: 2_000,
+        text: "Amen.",
+      },
+      matchedInformativeWords: 0,
+      orderDistance: 1,
+      score: 1,
+    }),
+  });
+  assert(
+    decision.eligible && decision.acceptImmediately,
+    "An exact response may advance only when it is the immediate expected target",
+  );
+  decision = evaluateMassSpeechAcceptance({
+    alternativeRank: 2,
+    final: false,
+    initial: false,
+    match: acceptanceMatch({
+      candidate: {
+        id: "lower-ranked-amen",
+        mode: "response",
+        order: 2_000,
+        text: "Amen.",
+      },
+      matchedInformativeWords: 0,
+      orderDistance: 1,
+      score: 1,
+    }),
+  });
+  assert(
+    decision.eligible && !decision.acceptImmediately,
+    "A lower-ranked interim short response must wait for confirmation",
+  );
+  decision = evaluateMassSpeechAcceptance({
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      candidate: {
+        id: "ambiguous-variant-amen",
+        mode: "response",
+        order: 2_000,
+        text: "Amen.",
+      },
+      margin: 0,
+      matchedInformativeWords: 0,
+      orderDistance: 1,
+      score: 1,
+    }),
+    requiresUniqueMatch: true,
+  });
+  assert(
+    !decision.eligible && decision.reason === "insufficient-margin",
+    "An identical short response must never select between dialogue variants",
+  );
+  decision = evaluateMassSpeechAcceptance({
+    alternativeRank: 2,
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      candidate: {
+        id: "short-priest-formula",
+        order: 2_000,
+        text: "The Lord be with you.",
+      },
+      margin: 0,
+      matchedInformativeWords: 1,
+      orderDistance: 1,
+      score: 0.838,
+    }),
+  });
+  assert(
+    decision.eligible && decision.acceptImmediately,
+    "An exact short priest formula must advance promptly only in its expected sequence position",
+  );
+  decision = evaluateMassSpeechAcceptance({
+    final: true,
+    initial: false,
+    match: acceptanceMatch({
+      candidate: {
+        id: "immediate-amen",
+        mode: "response",
+        order: 2_000,
+        text: "Amen.",
+      },
+      matchedInformativeWords: 0,
+      orderDistance: 1,
+      score: 0.99,
+    }),
+  });
+  assert(
+    !decision.eligible,
+    "A short response requires an exact suffix match",
   );
 }
 

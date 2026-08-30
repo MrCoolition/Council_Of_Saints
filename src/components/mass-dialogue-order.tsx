@@ -88,6 +88,9 @@ export function MassDialogueOrder({
       }),
     ),
   );
+  const [resolvedVariants, setResolvedVariants] = useState<
+    Readonly<Record<string, string>>
+  >({});
   const { activeTargetId } = useMassFollowState();
   const followTargets = useMemo(
     () =>
@@ -95,6 +98,7 @@ export function MassDialogueOrder({
         followOrderBase,
         idPrefix,
         items: dialogueItems,
+        resolvedVariants,
         revealItem: (itemKey, variantId) => {
           setOpenItems((current) => {
             if (current.has(itemKey)) {
@@ -112,6 +116,11 @@ export function MassDialogueOrder({
                 ? current
                 : { ...current, [itemKey]: variantId },
             );
+            setResolvedVariants((current) =>
+              current[itemKey] === variantId
+                ? current
+                : { ...current, [itemKey]: variantId },
+            );
           }
         },
       }),
@@ -119,7 +128,9 @@ export function MassDialogueOrder({
       dialogueItems,
       followOrderBase,
       idPrefix,
+      resolvedVariants,
       setOpenItems,
+      setResolvedVariants,
       setSelectedVariants,
     ],
   );
@@ -144,6 +155,10 @@ export function MassDialogueOrder({
 
   function selectVariant(key: string, variantId: string) {
     setSelectedVariants((current) => ({
+      ...current,
+      [key]: variantId,
+    }));
+    setResolvedVariants((current) => ({
       ...current,
       [key]: variantId,
     }));
@@ -471,6 +486,7 @@ function DialogueBlock({
 
           return (
             <span
+              aria-current={active ? "true" : undefined}
               className={
                 active
                   ? "rounded-sm bg-[color:var(--gilt)]/30 motion-safe:transition-colors"
@@ -658,11 +674,13 @@ function buildMassFollowTargets({
   followOrderBase,
   idPrefix,
   items,
+  resolvedVariants,
   revealItem,
 }: {
   followOrderBase: number;
   idPrefix: string;
   items: readonly MassOrderItem[];
+  resolvedVariants: Readonly<Record<string, string>>;
   revealItem: (itemKey: string, variantId: string | null) => void;
 }): MassFollowTargetRegistration[] {
   return items.flatMap((item, itemIndex) => {
@@ -678,21 +696,30 @@ function buildMassFollowTargets({
       itemIndex,
       lines: baseLines,
       lineOffset: 0,
+      requiresUniqueMatch: false,
       reveal: () => revealItem(itemKey, null),
       variant: null,
     });
-    const variantTargets = (item.variants ?? []).flatMap((variant) =>
-      buildLineTargets({
-        followOrderBase,
-        idPrefix,
-        item,
-        itemIndex,
-        lines: variant.lines,
-        lineOffset: item.lines?.length ?? 0,
-        reveal: () => revealItem(itemKey, variant.id),
-        variant,
-      }),
-    );
+    const resolvedVariantId = resolvedVariants[itemKey];
+    const variantTargets = (item.variants ?? [])
+      .filter(
+        (variant) =>
+          resolvedVariantId === undefined ||
+          variant.id === resolvedVariantId,
+      )
+      .flatMap((variant) =>
+        buildLineTargets({
+          followOrderBase,
+          idPrefix,
+          item,
+          itemIndex,
+          lines: variant.lines,
+          lineOffset: item.lines?.length ?? 0,
+          requiresUniqueMatch: resolvedVariantId === undefined,
+          reveal: () => revealItem(itemKey, variant.id),
+          variant,
+        }),
+      );
 
     return [...baseTargets, ...variantTargets];
   });
@@ -705,6 +732,7 @@ function buildLineTargets({
   itemIndex,
   lines,
   lineOffset,
+  requiresUniqueMatch,
   reveal,
   variant,
 }: {
@@ -714,6 +742,7 @@ function buildLineTargets({
   itemIndex: number;
   lines: readonly MassDialogueLine[];
   lineOffset: number;
+  requiresUniqueMatch: boolean;
   reveal: () => void;
   variant: MassDialogueVariant | null;
 }): MassFollowTargetRegistration[] {
@@ -762,7 +791,7 @@ function buildLineTargets({
           chunkIndex,
         matchTexts: bridge ? [bridge] : undefined,
         mode,
-        requiresUniqueMatch: variant !== null,
+        requiresUniqueMatch,
         reveal,
         text,
       };

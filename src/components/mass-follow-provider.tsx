@@ -21,7 +21,11 @@ import {
 } from "react";
 import {
   advanceMassSpeechEvidence,
+  appendMassSpeechWordWindow,
+  countMassSpeechFreshInformativeWords,
   createMassSpeechEvidenceState,
+  createMassSpeechContextPhrases,
+  evaluateMassSpeechAcceptance,
   findPreparedMassSpeechMatch,
   normalizeMassSpeech,
   prepareMassSpeechCandidates,
@@ -33,17 +37,16 @@ import {
 
 const MAX_ROLLING_WORDS = 24;
 const MAX_CONSECUTIVE_RESTARTS = 3;
-const GLOBAL_REACQUISITION_DELAY_MS = 15_000;
+const GLOBAL_REACQUISITION_DELAY_MS = 8_000;
+const POST_GAP_CONFIRMATION_DELAY_MS = 6_000;
 const INTERIM_CONFIRMATION_WINDOW_MS = 5_000;
-const IMMEDIATE_INTERIM_MIN_SCORE = 0.8;
-const IMMEDIATE_INTERIM_MIN_INFORMATIVE_WORDS = 3;
-const UNIQUE_TARGET_MIN_SCORE = 0.88;
-const UNIQUE_TARGET_WINNER_MARGIN = 0.12;
 const LOCAL_RECOGNITION_PROBE_MS = 120;
-const TRACKING_SCROLL_DURATION_MS = 160;
-const TRACKING_VIEWPORT_TOP = 0.22;
-const TRACKING_VIEWPORT_BOTTOM = 0.68;
-const TRACKING_VIEWPORT_ANCHOR = 0.32;
+const RECOGNITION_STALL_RECOVERY_MS = 1_200;
+const REVEAL_TIMEOUT_MS = 750;
+const TRACKING_SCROLL_DURATION_MS = 110;
+const TRACKING_VIEWPORT_TOP = 0.3;
+const TRACKING_VIEWPORT_BOTTOM = 0.48;
+const TRACKING_VIEWPORT_ANCHOR = 0.36;
 const RESTART_DELAYS_MS = [250, 750, 1_500] as const;
 const SPEECH_LANGUAGE = "en-US";
 
@@ -122,11 +125,26 @@ type SpeechRecognitionErrorEventLike = Event & {
   readonly message?: string;
 };
 
+type SpeechRecognitionPhraseLike = {
+  readonly boost: number;
+  readonly phrase: string;
+};
+
+type SpeechRecognitionPhraseListLike = {
+  readonly length: number;
+  splice: (
+    start: number,
+    deleteCount: number,
+    ...items: SpeechRecognitionPhraseLike[]
+  ) => unknown;
+};
+
 type SpeechRecognitionLike = {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
   maxAlternatives: number;
+  phrases?: SpeechRecognitionPhraseListLike;
   processLocally?: boolean;
   onend: ((event: Event) => void) | null;
   onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
@@ -151,8 +169,13 @@ type SpeechRecognitionConstructorLike = {
   }) => Promise<SpeechRecognitionAvailability>;
 };
 
+type SpeechRecognitionPhraseConstructorLike = {
+  new (phrase: string, boost?: number): SpeechRecognitionPhraseLike;
+};
+
 type SpeechRecognitionWindow = Window & {
   SpeechRecognition?: SpeechRecognitionConstructorLike;
+  SpeechRecognitionPhrase?: SpeechRecognitionPhraseConstructorLike;
   webkitSpeechRecognition?: SpeechRecognitionConstructorLike;
 };
 
@@ -168,8 +191,16 @@ type TargetRegistryContextValue = {
 };
 
 type TranscriptOption = {
+  alternativeRank: number;
+  confidence: number;
   transcript: string;
   final: boolean;
+  segment: string;
+};
+
+type TranscriptConsideration = {
+  accepted: boolean;
+  option: TranscriptOption;
 };
 
 const TargetRegistryContext = createContext<TargetRegistryContextValue | null>(
@@ -204,6 +235,8 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
   const sessionGenerationRef = useRef(0);
   const restartAttemptsRef = useRef(0);
   const restartTimerRef = useRef<number | null>(null);
+  const recognitionRecoveryTimerRef = useRef<number | null>(null);
+  const contextBiasDisabledRef = useRef(false);
   const rollingWordsRef = useRef<readonly string[]>([]);
   const currentOrderRef = useRef<number | null>(null);
   const lastAcceptedMatchAtRef = useRef(0);
@@ -272,6 +305,14 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     restartTimerRef.current = null;
   }, []);
 
+  const clearRecognitionRecoveryTimer = useCallback(() => {
+    if (recognitionRecoveryTimerRef.current === null) {
+      return;
+    }
+    window.clearTimeout(recognitionRecoveryTimerRef.current);
+    recognitionRecoveryTimerRef.current = null;
+  }, []);
+
   const cancelPendingScroll = useCallback(() => {
     if (scrollFrameRef.current !== null) {
       window.cancelAnimationFrame(scrollFrameRef.current);
@@ -280,6 +321,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const disposeCurrentRecognition = useCallback(() => {
+    clearRecognitionRecoveryTimer();
     const recognition = recognitionRef.current;
     recognitionRef.current = null;
     if (!recognition) {
@@ -295,7 +337,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     } catch {
       // Some engines throw when an already-ended recognizer is aborted.
     }
-  }, []);
+  }, [clearRecognitionRecoveryTimer]);
 
   const releaseWakeLock = useCallback(() => {
     wakeLockGenerationRef.current += 1;
@@ -476,7 +518,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
       }
 
       cancelPendingScroll();
-      let attempts = 0;
+      const revealStartedAt = performance.now();
       let revealedTarget = target;
 
       const revealCurrentTargetAndScroll = () => {
@@ -495,13 +537,23 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
             }
           }
 
-          const element = document.getElementById(target.elementId);
-          if ((!element || element.closest("[hidden]")) && attempts < 12) {
-            attempts += 1;
-            revealCurrentTargetAndScroll();
+          const element = document.getElementById(revealedTarget.elementId);
+          if (
+            !element ||
+            !element.isConnected ||
+            element.closest("[hidden]")
+          ) {
+            if (performance.now() - revealStartedAt < REVEAL_TIMEOUT_MS) {
+              revealCurrentTargetAndScroll();
+            }
             return;
           }
-          if (!element) {
+
+          const rect = element.getBoundingClientRect();
+          if (rect.width === 0 && rect.height === 0) {
+            if (performance.now() - revealStartedAt < REVEAL_TIMEOUT_MS) {
+              revealCurrentTargetAndScroll();
+            }
             return;
           }
 
@@ -510,7 +562,6 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
             "(prefers-reduced-motion: reduce)",
           ).matches;
           const viewportHeight = window.innerHeight;
-          const rect = element.getBoundingClientRect();
           const comfortTop = viewportHeight * TRACKING_VIEWPORT_TOP;
           const comfortBottom = viewportHeight * TRACKING_VIEWPORT_BOTTOM;
           if (rect.top >= comfortTop && rect.bottom <= comfortBottom) {
@@ -522,14 +573,17 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
             document.documentElement.scrollHeight,
           );
           const maximumScroll = Math.max(0, documentHeight - viewportHeight);
-          const destination = Math.min(
+          const start = window.scrollY;
+          const naturalDestination = Math.min(
             maximumScroll,
             Math.max(
               0,
               window.scrollY + rect.top - viewportHeight * TRACKING_VIEWPORT_ANCHOR,
             ),
           );
-          const start = window.scrollY;
+          const destination = instant
+            ? naturalDestination
+            : Math.max(start, naturalDestination);
           const distance = destination - start;
           if (Math.abs(distance) < 2) {
             return;
@@ -571,103 +625,173 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
   );
 
   const considerTranscripts = useCallback(
-    (transcripts: readonly TranscriptOption[]) => {
+    (
+      transcripts: readonly TranscriptOption[],
+    ): TranscriptConsideration | null => {
       const targets = targetsRef.current;
       const prepared = preparedTargetsRef.current;
       if (targets.length === 0 || !prepared) {
-        return;
+        return null;
       }
 
       const now = Date.now();
+      const previousOrder = currentOrderRef.current;
       const allowGlobal =
-        currentOrderRef.current === null ||
+        previousOrder === null ||
         now - lastAcceptedMatchAtRef.current >=
           GLOBAL_REACQUISITION_DELAY_MS;
+      const requiresPostGapConfirmation =
+        previousOrder !== null &&
+        now - lastAcceptedMatchAtRef.current >=
+          POST_GAP_CONFIRMATION_DELAY_MS;
       let bestSelection: {
-        final: boolean;
+        acceptImmediately: boolean;
+        effectiveScore: number;
         match: MassSpeechMatch;
-        transcript: string;
+        option: TranscriptOption;
+        target: MassFollowTargetRegistration;
       } | null = null;
       for (const option of transcripts) {
         const match = findPreparedMassSpeechMatch({
           transcript: option.transcript,
           prepared,
-          currentOrder: currentOrderRef.current ?? undefined,
+          currentOrder: previousOrder ?? undefined,
           allowGlobal,
         });
+        if (!match) {
+          continue;
+        }
+
+        const target = targets.find(
+          (candidate) =>
+            candidate.id === match.candidate.id &&
+            candidate.order === match.candidate.order,
+        );
         if (
-          match &&
-          (!bestSelection ||
-            match.score > bestSelection.match.score ||
-            (match.score === bestSelection.match.score &&
-              (match.margin > bestSelection.match.margin ||
-                (match.margin === bestSelection.match.margin &&
-                  option.final &&
-                  !bestSelection.final))))
+          !target ||
+          (previousOrder !== null && target.order <= previousOrder)
         ) {
+          continue;
+        }
+
+        const acceptance = evaluateMassSpeechAcceptance({
+          alternativeRank: option.alternativeRank,
+          final: option.final,
+          initial: previousOrder === null,
+          match,
+          requiresConfirmation: requiresPostGapConfirmation,
+          requiresUniqueMatch: target.requiresUniqueMatch,
+        });
+        if (!acceptance.eligible) {
+          continue;
+        }
+
+        const freshInformativeWords =
+          countMassSpeechFreshInformativeWords(
+            option.segment,
+            match.candidate,
+          );
+        const candidateWordCount = normalizeMassSpeech(
+          match.candidate.text,
+        )
+          .split(" ")
+          .filter(Boolean).length;
+        const targetKey = `${target.id}:${target.order}`;
+        const confirmsPendingTarget =
+          evidenceStateRef.current.pending?.targetKey === targetKey;
+        const requiresIndependentConfirmation =
+          Boolean(target.requiresUniqueMatch) ||
+          requiresPostGapConfirmation;
+        let minimumFreshInformativeWords = 1;
+        if (acceptance.acceptImmediately && previousOrder !== null) {
+          minimumFreshInformativeWords =
+            (match.orderDistance ?? 1) > 1
+              ? 3
+              : candidateWordCount > 8
+                ? 2
+                : 1;
+        }
+        if (confirmsPendingTarget) {
+          minimumFreshInformativeWords = Math.max(
+            minimumFreshInformativeWords,
+            match.scope === "global" || requiresIndependentConfirmation
+              ? candidateWordCount <= 8
+                ? 1
+                : 3
+              : (match.orderDistance ?? 1) > 1
+                ? 2
+                : 1,
+          );
+        }
+        if (freshInformativeWords < minimumFreshInformativeWords) {
+          continue;
+        }
+
+        const effectiveScore =
+          match.score - Math.min(2, option.alternativeRank) * 0.035;
+        const selectionIsBetter = (() => {
+          if (!bestSelection) {
+            return true;
+          }
+          if (effectiveScore !== bestSelection.effectiveScore) {
+            return effectiveScore > bestSelection.effectiveScore;
+          }
+          if (match.margin !== bestSelection.match.margin) {
+            return match.margin > bestSelection.match.margin;
+          }
+          if (
+            match.matchedInformativeWords !==
+            bestSelection.match.matchedInformativeWords
+          ) {
+            return (
+              match.matchedInformativeWords >
+              bestSelection.match.matchedInformativeWords
+            );
+          }
+          if (
+            option.alternativeRank !==
+            bestSelection.option.alternativeRank
+          ) {
+            return (
+              option.alternativeRank <
+              bestSelection.option.alternativeRank
+            );
+          }
+          return option.confidence > bestSelection.option.confidence;
+        })();
+        if (selectionIsBetter) {
           bestSelection = {
-            final: option.final,
+            acceptImmediately: acceptance.acceptImmediately,
+            effectiveScore,
             match,
-            transcript: option.transcript,
+            option,
+            target,
           };
         }
       }
 
       if (!bestSelection) {
-        return;
+        return null;
       }
       const bestMatch = bestSelection.match;
       const matchedCandidate = bestMatch.candidate;
-      const target = targets.find(
-        (candidate) =>
-          candidate.id === matchedCandidate.id &&
-          candidate.order === matchedCandidate.order,
-      );
-      if (!target) {
-        return;
-      }
-
-      const previousOrder = currentOrderRef.current;
-      if (previousOrder !== null && matchedCandidate.order <= previousOrder) {
-        return;
-      }
-
-      if (
-        target.requiresUniqueMatch &&
-        bestMatch.score < UNIQUE_TARGET_MIN_SCORE
-      ) {
-        return;
-      }
-      if (
-        target.requiresUniqueMatch &&
-        bestMatch.margin < UNIQUE_TARGET_WINNER_MARGIN
-      ) {
-        return;
-      }
+      const target = bestSelection.target;
 
       const evidenceFingerprint = normalizeMassSpeech(
-        bestSelection.transcript,
+        bestSelection.option.segment,
       );
       if (!evidenceFingerprint) {
-        return;
-      }
-
-      let acceptImmediately = bestSelection.final;
-      if (!bestSelection.final) {
-        acceptImmediately =
-          previousOrder !== null &&
-          bestMatch.scope === "forward" &&
-          bestMatch.orderDistance === 1 &&
-          matchedCandidate.mode !== "response" &&
-          bestMatch.score >= IMMEDIATE_INTERIM_MIN_SCORE &&
-          bestMatch.matchedInformativeWords >=
-            IMMEDIATE_INTERIM_MIN_INFORMATIVE_WORDS;
+        return null;
       }
 
       const evidenceDecision = advanceMassSpeechEvidence({
-        acceptImmediately,
+        acceptImmediately: bestSelection.acceptImmediately,
+        allowAcceptedFingerprintReuse:
+          matchedCandidate.mode === "response" &&
+          bestMatch.scope === "forward" &&
+          bestMatch.orderDistance === 1,
         confirmationWindowMs: INTERIM_CONFIRMATION_WINDOW_MS,
-        final: bestSelection.final,
+        final: bestSelection.option.final,
         fingerprint: evidenceFingerprint,
         now,
         state: evidenceStateRef.current,
@@ -675,17 +799,24 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
       });
       evidenceStateRef.current = evidenceDecision.state;
       if (!evidenceDecision.accepted) {
-        return;
+        return { accepted: false, option: bestSelection.option };
       }
 
       lastAcceptedMatchAtRef.current = now;
       currentOrderRef.current = bestMatch.candidate.order;
+      updateRecognitionContextPhrases(
+        recognitionRef.current,
+        targetsRef.current,
+        currentOrderRef.current,
+        contextBiasDisabledRef.current,
+      );
       revealAndScroll(target, {
         instant:
           previousOrder === null ||
           bestMatch.scope === "global" ||
           (bestMatch.orderDistance ?? 1) > 3,
       });
+      return { accepted: true, option: bestSelection.option };
     },
     [revealAndScroll],
   );
@@ -693,9 +824,9 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
   const handleSpeechResult = useCallback(
     (event: SpeechRecognitionResultEventLike) => {
       restartAttemptsRef.current = 0;
+      clearRecognitionRecoveryTimer();
       let rollingWords = [...rollingWordsRef.current];
       let interimWords: readonly string[] | null = null;
-      const finalOptionGroups: TranscriptOption[][] = [];
 
       for (
         let resultIndex = event.resultIndex;
@@ -707,39 +838,69 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
           continue;
         }
 
-        const alternatives = Array.from(
-          { length: Math.min(result.length, result.isFinal ? 3 : 1) },
-          (_, alternativeIndex) => result[alternativeIndex]?.transcript ?? "",
-        ).filter(Boolean);
+        const alternatives: Array<{
+          alternativeRank: number;
+          confidence: number;
+          transcript: string;
+        }> = [];
+        for (
+          let alternativeRank = 0;
+          alternativeRank < Math.min(result.length, 3);
+          alternativeRank += 1
+        ) {
+          const alternative = result[alternativeRank];
+          const transcript = alternative?.transcript.trim() ?? "";
+          if (transcript) {
+            alternatives.push({
+              alternativeRank,
+              confidence: Number.isFinite(alternative?.confidence)
+                ? alternative?.confidence ?? 0
+                : 0,
+              transcript,
+            });
+          }
+        }
 
         if (result.isFinal && alternatives[0]) {
           const options = alternatives.map((alternative) => ({
+            alternativeRank: alternative.alternativeRank,
+            confidence: alternative.confidence,
             final: true,
-            transcript: appendToWordWindow(
+            transcript: appendMassSpeechWordWindow(
               rollingWords,
-              alternative,
+              alternative.transcript,
             ).join(" "),
+            segment: alternative.transcript,
           }));
-          finalOptionGroups.push(options);
-          rollingWords = appendToWordWindow(rollingWords, alternatives[0]);
+          const consideration = considerTranscripts(options);
+          rollingWords = appendMassSpeechWordWindow(
+            rollingWords,
+            consideration?.option.segment ?? alternatives[0].transcript,
+          );
           interimWords = null;
         } else if (alternatives[0]) {
-          interimWords = appendToWordWindow(
-            interimWords ?? rollingWords,
-            alternatives[0],
+          const interimBase = interimWords ?? rollingWords;
+          const options = alternatives.map((alternative) => ({
+            alternativeRank: alternative.alternativeRank,
+            confidence: alternative.confidence,
+            final: false,
+            segment: alternative.transcript,
+            transcript: appendMassSpeechWordWindow(
+              interimBase,
+              alternative.transcript,
+            ).join(" "),
+          }));
+          const consideration = considerTranscripts(options);
+          interimWords = appendMassSpeechWordWindow(
+            interimBase,
+            consideration?.option.segment ?? alternatives[0].transcript,
           );
         }
       }
 
       rollingWordsRef.current = rollingWords.slice(-MAX_ROLLING_WORDS);
-      finalOptionGroups.forEach((options) => considerTranscripts(options));
-      if (interimWords) {
-        considerTranscripts([
-          { final: false, transcript: interimWords.join(" ") },
-        ]);
-      }
     },
-    [considerTranscripts],
+    [clearRecognitionRecoveryTimer, considerTranscripts],
   );
 
   function failRecognition(message: string, denied = false) {
@@ -801,6 +962,28 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     }, delay);
   }
 
+  function scheduleRecognitionRecovery(
+    recognition: SpeechRecognitionLike,
+  ) {
+    clearRecognitionRecoveryTimer();
+    recognitionRecoveryTimerRef.current = window.setTimeout(() => {
+      recognitionRecoveryTimerRef.current = null;
+      if (
+        !mountedRef.current ||
+        !wantsListeningRef.current ||
+        recognitionRef.current !== recognition
+      ) {
+        return;
+      }
+      try {
+        recognition.abort();
+      } catch {
+        // A stalled engine can already consider itself ended.
+      }
+      scheduleRestart(recognition);
+    }, RECOGNITION_STALL_RECOVERY_MS);
+  }
+
   async function beginListening() {
     const Recognition = getSpeechRecognitionConstructor();
     if (!Recognition) {
@@ -817,6 +1000,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
     wantsListeningRef.current = true;
     void acquireWakeLock();
     restartAttemptsRef.current = 0;
+    contextBiasDisabledRef.current = false;
     rollingWordsRef.current = [];
     evidenceStateRef.current = createMassSpeechEvidenceState();
     setErrorMessage(null);
@@ -832,6 +1016,12 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.maxAlternatives = 3;
+      updateRecognitionContextPhrases(
+        recognition,
+        targetsRef.current,
+        currentOrderRef.current,
+        contextBiasDisabledRef.current,
+      );
     } catch {
       failRecognition(
         "The browser could not initialize its speech service. Check microphone access and try again.",
@@ -880,12 +1070,14 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
 
     recognition.onstart = () => {
       if (wantsListeningRef.current) {
+        clearRecognitionRecoveryTimer();
         setErrorMessage(null);
         setActivity("listening");
         updateStatus("listening");
       }
     };
     recognition.onresult = (event) => {
+      clearRecognitionRecoveryTimer();
       setErrorMessage(null);
       if (!activeTargetIdRef.current) {
         setActivity("listening");
@@ -896,14 +1088,24 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
       if (event.error === "aborted") {
         return;
       }
+      if (event.error === "phrases-not-supported") {
+        contextBiasDisabledRef.current = true;
+        clearRecognitionContextPhrases(recognition);
+        setActivity("retrying");
+        setErrorMessage(null);
+        scheduleRecognitionRecovery(recognition);
+        return;
+      }
       if (event.error === "no-speech") {
         setActivity("retrying");
         setErrorMessage("No speech was heard. Listening will resume automatically.");
+        scheduleRecognitionRecovery(recognition);
         return;
       }
       if (event.error === "network") {
         setActivity("retrying");
         setErrorMessage("The browser speech service lost its connection. Reconnecting.");
+        scheduleRecognitionRecovery(recognition);
         return;
       }
       const denied =
@@ -912,6 +1114,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
       failRecognition(getSpeechRecognitionErrorMessage(event.error), denied);
     };
     recognition.onend = () => {
+      clearRecognitionRecoveryTimer();
       if (wantsListeningRef.current) {
         scheduleRestart(recognition);
       }
@@ -975,6 +1178,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
         window.clearTimeout(restartTimerRef.current);
         restartTimerRef.current = null;
       }
+      clearRecognitionRecoveryTimer();
       if (scrollFrameRef.current !== null) {
         window.cancelAnimationFrame(scrollFrameRef.current);
       }
@@ -992,7 +1196,7 @@ export function MassFollowProvider({ children }: { children: ReactNode }) {
         }
       }
     };
-  }, [releaseWakeLock, updateStatus]);
+  }, [clearRecognitionRecoveryTimer, releaseWakeLock, updateStatus]);
 
   useEffect(() => {
     function handleVisibilityChange() {
@@ -1445,6 +1649,47 @@ function getSpeechRecognitionConstructor() {
   );
 }
 
+function updateRecognitionContextPhrases(
+  recognition: SpeechRecognitionLike | null,
+  targets: readonly MassFollowTargetRegistration[],
+  currentOrder: number | null,
+  disabled: boolean,
+) {
+  if (disabled || !recognition?.phrases) {
+    return;
+  }
+  const Phrase = (
+    window as SpeechRecognitionWindow
+  ).SpeechRecognitionPhrase;
+  if (!Phrase) {
+    return;
+  }
+
+  try {
+    const phrases = createMassSpeechContextPhrases(
+      targets,
+      currentOrder,
+    ).map(({ boost, text }) => new Phrase(text, boost));
+    recognition.phrases.splice(
+      0,
+      recognition.phrases.length,
+      ...phrases,
+    );
+  } catch {
+    // Context biasing is an optional optimization; base recognition continues.
+  }
+}
+
+function clearRecognitionContextPhrases(
+  recognition: SpeechRecognitionLike,
+) {
+  try {
+    recognition.phrases?.splice(0, recognition.phrases.length);
+  } catch {
+    // Some partial implementations expose a non-mutable placeholder.
+  }
+}
+
 function getScreenWakeLock() {
   if (typeof navigator === "undefined") {
     return null;
@@ -1454,15 +1699,6 @@ function getScreenWakeLock() {
 
 function isDocumentHidden() {
   return document.visibilityState === "hidden";
-}
-
-function appendToWordWindow(
-  currentWords: readonly string[],
-  transcript: string,
-) {
-  return [...currentWords, ...transcript.trim().split(/\s+/u).filter(Boolean)].slice(
-    -MAX_ROLLING_WORDS,
-  );
 }
 
 function getSpeechRecognitionErrorMessage(error: string) {
